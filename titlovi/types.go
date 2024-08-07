@@ -1,15 +1,24 @@
 package titlovi
 
-import "time"
-
 type LoginData struct {
-	Username       string    `json:"UserName"`
-	UserId         string    `json:"UserId"`
-	Token          string    `json:"Token"`
-	ExpirationDate time.Time `json:"ExpirationDate"`
+	Username       string `json:"UserName"`
+	UserId         int64  `json:"UserId"`
+	Token          string `json:"Token"`
+	ExpirationDate string `json:"ExpirationDate"`
 }
 
 type LoginRequest struct {
-	Username string `json:"UserName"`
-	Password string `json:"Password"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type SubtitleData struct {
+	Id    int64  `json:"Id"`
+	Title string `json:"Title"`
+	Link  string `json:"Link"`
+	Lang  string `json:"Lang"`
+}
+
+type SubtitleDataResponse struct {
+	Subtitles []SubtitleData `json:"SubtitleResults"`
 }

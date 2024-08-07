@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go-titlovi/logger"
 	"go-titlovi/stremio"
+	"go-titlovi/titlovi"
 	"log"
 	"net/http"
 
@@ -12,12 +13,14 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func buildRouter() *mux.Router {
+func buildRouter(client *titlovi.Client) *mux.Router {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/", homeHandler)
 	r.HandleFunc("/manifest.json", manifestHandler)
-	r.HandleFunc("/subtitles/{type}/{id}/{extraArgs}.json", subtitlesHandler)
+	r.HandleFunc("/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
+		subtitlesHandler(w, r, client)
+	})
 
 	http.Handle("/", r)
 
@@ -39,7 +42,7 @@ func serve(r *mux.Router) error {
 	methodsOk := handlers.AllowedMethods([]string{"GET"})
 
 	// Listen
-	log.Printf("Listening on port %s...\n", Port)
+	logger.LogInfo.Printf("Listening on port %s...\n", Port)
 	err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", Port), handlers.CORS(originsOk, headersOk, methodsOk)(r))
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -52,9 +55,9 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse, err := json.Marshal(map[string]any{"Path": "/"})
 	if err != nil {
 		logger.LogError.Printf("Failed to marshal json: %v", err)
-    }
+	}
 
-	log.Printf("Received request to %s\n", r.URL.Path)
+	logger.LogInfo.Printf("Received request to %s\n", r.URL.Path)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
 }
@@ -65,16 +68,16 @@ func manifestHandler(w http.ResponseWriter, r *http.Request) {
 		logger.LogError.Printf("Failed to marshal json: %v", err)
 	}
 
-    log.Printf("Received request to %s\n", r.URL.Path)
+	logger.LogInfo.Printf("Received request to %s\n", r.URL.Path)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
 }
 
-func subtitlesHandler(w http.ResponseWriter, r *http.Request) {
+func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
 	path := r.URL.Path
 	params := mux.Vars(r)
 
-	log.Printf("Received request to %s\n", r.URL.Path)
+	logger.LogInfo.Printf("Received request to %s\n", r.URL.Path)
 
 	mediaType, ok := params["type"]
 	if !ok {

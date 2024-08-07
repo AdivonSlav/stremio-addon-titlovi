@@ -2,6 +2,7 @@ package main
 
 import (
 	"go-titlovi/logger"
+	"go-titlovi/titlovi"
 
 	"github.com/joho/godotenv"
 )
@@ -16,7 +17,9 @@ func main() {
 	}
 	initConfig()
 
-	router := buildRouter()
+	client := titlovi.NewClient(TitloviUsername, TitloviPassword)
+
+	router := buildRouter(client)
 
 	err = serve(router)
 	if err != nil {
