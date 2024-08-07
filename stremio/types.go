@@ -18,6 +18,5 @@ type Manifest struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description"`
 	Types       []string      `json:"types"`
-	Catalogs    []CatalogItem `json:"catalogs"`
 	Resources   []string      `json:"resources"`
 }
