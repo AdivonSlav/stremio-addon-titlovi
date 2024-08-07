@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"go-titlovi/stremio"
 	"log"
 	"net/http"
 
@@ -15,6 +16,7 @@ func buildRouter() *mux.Router {
 
 	r.HandleFunc("/", homeHandler)
 	r.HandleFunc("/manifest.json", manifestHandler)
+	r.HandleFunc("/subtitles/{type}/{id}/{extraArgs}.json", subtitlesHandler)
 
 	http.Handle("/", r)
 
@@ -68,11 +70,28 @@ func manifestHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func subtitlesHandler(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	params := mux.Vars(r)
 
+	log.Printf("Received request to %s\n", r.URL.Path)
+
+	mediaType, ok := params["type"]
+	if !ok {
+		log.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+	}
+
+	imdbId, ok := params["id"]
+	if !ok {
+		log.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+	}
+
+	subtitles := []stremio.SubtitleItem{}
+	log.Printf("Type was %s", mediaType)
+	log.Printf("ID was %s", imdbId)
+
+	w.Header().Set("Content-Type", "application/json")
+	catalogJson, _ := json.Marshal(map[string]any{
+		"subtitles": subtitles,
+	})
+	w.Write(catalogJson)
 }
-
-
-
-
-
-
