@@ -19,6 +19,7 @@ var (
 	Port            string = ""
 	TitloviUsername string = ""
 	TitloviPassword string = ""
+	TitloviApi      string = "https://kodi.titlovi.com/api/subtitles"
 )
 
 func initConfig() {

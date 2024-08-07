@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"go-titlovi/logger"
 	"go-titlovi/stremio"
 	"log"
 	"net/http"
@@ -50,8 +51,8 @@ func serve(r *mux.Router) error {
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse, err := json.Marshal(map[string]any{"Path": "/"})
 	if err != nil {
-		log.Printf("Failed to marshal json: %v", err)
-	}
+		logger.LogError.Printf("Failed to marshal json: %v", err)
+    }
 
 	log.Printf("Received request to %s\n", r.URL.Path)
 	w.Header().Set("Content-Type", "application/json")
@@ -61,10 +62,10 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 func manifestHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse, err := json.Marshal(Manifest)
 	if err != nil {
-		log.Printf("Failed to marshal json: %v", err)
+		logger.LogError.Printf("Failed to marshal json: %v", err)
 	}
 
-	log.Printf("Received request to %s\n", r.URL.Path)
+    log.Printf("Received request to %s\n", r.URL.Path)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
 }

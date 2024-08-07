@@ -1,17 +1,18 @@
 package main
 
 import (
-	"log"
+	"go-titlovi/logger"
 
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	log.Println("main: initializing...")
+	logger.InitLoggers()
+	logger.LogInfo.Printf("main: initializing...")
 
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatalf("main: failed to load environment file\n")
+		logger.LogFatal.Fatalf("main: failed to load environment file\n")
 	}
 	initConfig()
 
@@ -19,6 +20,6 @@ func main() {
 
 	err = serve(router)
 	if err != nil {
-		log.Fatalf("main: fatal error when trying to serve: %s", err.Error())
+		logger.LogFatal.Fatalf("main: fatal error when trying to serve: %s", err.Error())
 	}
 }
