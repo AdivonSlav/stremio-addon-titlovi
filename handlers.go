@@ -6,7 +6,6 @@ import (
 	"go-titlovi/logger"
 	"go-titlovi/stremio"
 	"go-titlovi/titlovi"
-	"log"
 	"net/http"
 
 	"github.com/gorilla/handlers"
@@ -79,23 +78,48 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 
 	logger.LogInfo.Printf("Received request to %s\n", r.URL.Path)
 
-	mediaType, ok := params["type"]
+	_, ok := params["type"]
 	if !ok {
-		log.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+		logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	imdbId, ok := params["id"]
 	if !ok {
-		log.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+		logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
-	subtitles := []stremio.SubtitleItem{}
-	log.Printf("Type was %s", mediaType)
-	log.Printf("ID was %s", imdbId)
+	err := client.Login(false)
+	if err != nil {
+		logger.LogError.Printf("subtitlesHandler: %s", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	subtitleData, err := client.Search(imdbId, GetLanguagesToQuery())
+	if err != nil {
+		logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	subtitles := make([]stremio.SubtitleItem, len(subtitleData))
+
+	for i, data := range subtitleData {
+		subtitles[i] = stremio.SubtitleItem{
+			Id:   string(data.Id),
+			Url:  data.Link,
+			Lang: ConvertLangToISO(data.Lang),
+		}
+
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	catalogJson, _ := json.Marshal(map[string]any{
+	jsonResponse, _ := json.Marshal(map[string]any{
 		"subtitles": subtitles,
 	})
-	w.Write(catalogJson)
+	w.Write(jsonResponse)
 }

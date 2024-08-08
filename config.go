@@ -13,6 +13,7 @@ var Manifest = stremio.Manifest{
 	Description: "Test addon for fetching Titlovi.com subtitles",
 	Types:       []string{"movie", "series"},
 	Resources:   []string{"subtitles"},
+	IdPrefixes:  []string{"tt"},
 }
 
 var (

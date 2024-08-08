@@ -11,14 +11,6 @@ import (
 	"time"
 )
 
-var LangMap = map[string]string{
-	"Bosanski": "bos",
-	"Hrvatski": "hrv",
-	"Srpski":   "srb",
-	"Cirilica": "cpb",
-	"English":  "eng",
-}
-
 type Client struct {
 	titloviApi string
 

@@ -13,10 +13,11 @@ type SubtitleItem struct {
 }
 
 type Manifest struct {
-	Id          string        `json:"id"`
-	Version     string        `json:"version"`
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Types       []string      `json:"types"`
-	Resources   []string      `json:"resources"`
+	Id          string   `json:"id"`
+	Version     string   `json:"version"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Types       []string `json:"types"`
+	Resources   []string `json:"resources"`
+	IdPrefixes  []string `json:"idPrefixes"`
 }
