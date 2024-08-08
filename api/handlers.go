@@ -1,12 +1,14 @@
-package common
+package api
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"go-titlovi/logger"
-	"go-titlovi/stremio"
-	"go-titlovi/titlovi"
+	"go-titlovi/internal/config"
+	"go-titlovi/internal/logger"
+	"go-titlovi/internal/stremio"
+	"go-titlovi/internal/titlovi"
+	"go-titlovi/internal/utils"
 	"io"
 	"net/http"
 	"strconv"
@@ -49,8 +51,8 @@ func Serve(r *http.Handler) error {
 	methodsOk := handlers.AllowedMethods([]string{"GET"})
 
 	// Listen
-	logger.LogInfo.Printf("Serve: Listening on port %s...\n", Port)
-	err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", Port), handlers.CORS(originsOk, headersOk, methodsOk)(*r))
+	logger.LogInfo.Printf("Serve: Listening on port %s...\n", config.Port)
+	err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Port), handlers.CORS(originsOk, headersOk, methodsOk)(*r))
 	if err != nil {
 		return fmt.Errorf("Serve: %w", err)
 	}
@@ -70,7 +72,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func manifestHandler(w http.ResponseWriter, r *http.Request) {
-	jsonResponse, err := json.Marshal(Manifest)
+	jsonResponse, err := json.Marshal(config.Manifest)
 	if err != nil {
 		logger.LogError.Printf("Failed to marshal json: %v", err)
 	}
@@ -100,7 +102,7 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 		return
 	}
 
-	subtitleData, err := client.Search(imdbId, GetLanguagesToQuery())
+	subtitleData, err := client.Search(imdbId, utils.GetLanguagesToQuery())
 	if err != nil {
 		logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s", err.Error())
 		w.WriteHeader(http.StatusBadRequest)
@@ -111,11 +113,11 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 
 	for i, data := range subtitleData {
 		idStr := strconv.Itoa(int(data.Id))
-		servePath := fmt.Sprintf("%s:%s/serve-subtitle/%d/%s", ServerAddress, Port, data.Type, idStr)
+		servePath := fmt.Sprintf("%s:%s/serve-subtitle/%d/%s", config.ServerAddress, config.Port, data.Type, idStr)
 		subtitles[i] = &stremio.SubtitleItem{
 			Id:   idStr,
 			Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
-			Lang: fmt.Sprintf("%s|%s", data.Lang, SubtitleSuffix),
+			Lang: fmt.Sprintf("%s|%s", data.Lang, config.SubtitleSuffix),
 		}
 		logger.LogInfo.Printf("subtitlesHandler: prepared %+v", subtitles[i])
 	}
@@ -149,7 +151,7 @@ func serveSubtitleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url := fmt.Sprintf("%s/?type=%s&mediaid=%s", TitloviDownload, mediaType, mediaId)
+	url := fmt.Sprintf("%s/?type=%s&mediaid=%s", config.TitloviDownload, mediaType, mediaId)
 	resp, err := http.Get(url)
 	if err != nil {
 		logger.LogError.Printf("serveSubtitleHandler: failed to download subtitle at %s: %s", url, err)
@@ -171,14 +173,14 @@ func serveSubtitleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subData, err := ExtractSubtitleFromZIP(data)
+	subData, err := utils.ExtractSubtitleFromZIP(data)
 	if err != nil {
 		logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP from %s: %s", url, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	convertedSubData, err := ConvertSubtitleToVTT(subData)
+	convertedSubData, err := utils.ConvertSubtitleToVTT(subData)
 	if err != nil {
 		logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle from %s: %s", url, err)
 		w.WriteHeader(http.StatusInternalServerError)

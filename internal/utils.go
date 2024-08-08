@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"go-titlovi/stremio"
+	"go-titlovi/internal/stremio"
 	"io"
 	"strings"
 
@@ -81,7 +81,7 @@ func ExtractSubtitleFromZIP(zipData []byte) ([]byte, error) {
 		if strings.HasSuffix(file.Name, desiredExtension) {
 			zipFile, err := file.Open()
 			if err != nil {
-				return nil, fmt.Errorf("ExtractSubtitleFromZIP: failed to opem subtitle '%s' from zip file: %w", file.Name, err)
+				return nil, fmt.Errorf("ExtractSubtitleFromZIP: failed to open subtitle '%s' from zip file: %w", file.Name, err)
 			}
 			defer zipFile.Close()
 

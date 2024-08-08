@@ -3,7 +3,7 @@ package titlovi
 import (
 	"encoding/json"
 	"fmt"
-	"go-titlovi/logger"
+	"go-titlovi/internal/logger"
 	"io"
 	"net/http"
 	"net/url"

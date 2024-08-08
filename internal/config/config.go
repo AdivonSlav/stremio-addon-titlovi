@@ -1,7 +1,7 @@
-package common
+package config
 
 import (
-	"go-titlovi/stremio"
+	"go-titlovi/internal/stremio"
 	"log"
 	"os"
 )

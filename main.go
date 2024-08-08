@@ -1,9 +1,10 @@
 package main
 
 import (
-	"go-titlovi/common"
-	"go-titlovi/logger"
-	"go-titlovi/titlovi"
+	"go-titlovi/api"
+	"go-titlovi/internal/config"
+	"go-titlovi/internal/logger"
+	"go-titlovi/internal/titlovi"
 	"time"
 
 	"github.com/allegro/bigcache"
@@ -18,17 +19,17 @@ func main() {
 	if err != nil {
 		logger.LogFatal.Fatalf("main: failed to load environment file\n")
 	}
-	common.InitConfig()
+	config.InitConfig()
 
 	cache, err := bigcache.NewBigCache(bigcache.DefaultConfig(10 * time.Minute))
 	if err != nil {
 		logger.LogFatal.Fatalf("main: failed to initialize cache: %s", err)
 	}
-	client := titlovi.NewClient(common.TitloviUsername, common.TitloviPassword)
+	client := titlovi.NewClient(config.TitloviUsername, config.TitloviPassword)
 
-	router := common.BuildRouter(client, cache)
+	router := api.BuildRouter(client, cache)
 
-	err = common.Serve(router)
+	err = api.Serve(router)
 	if err != nil {
 		logger.LogFatal.Fatalf("main: fatal error when trying to serve: %s", err.Error())
 	}
