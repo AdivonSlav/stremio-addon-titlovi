@@ -4,7 +4,9 @@ import (
 	"go-titlovi/common"
 	"go-titlovi/logger"
 	"go-titlovi/titlovi"
+	"time"
 
+	"github.com/allegro/bigcache"
 	"github.com/joho/godotenv"
 )
 
@@ -18,9 +20,13 @@ func main() {
 	}
 	common.InitConfig()
 
+	cache, err := bigcache.NewBigCache(bigcache.DefaultConfig(10 * time.Minute))
+	if err != nil {
+		logger.LogFatal.Fatalf("main: failed to initialize cache: %s", err)
+	}
 	client := titlovi.NewClient(common.TitloviUsername, common.TitloviPassword)
 
-	router := common.BuildRouter(client)
+	router := common.BuildRouter(client, cache)
 
 	err = common.Serve(router)
 	if err != nil {
