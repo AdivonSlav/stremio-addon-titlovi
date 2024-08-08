@@ -1,11 +1,13 @@
 package common
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"go-titlovi/logger"
 	"go-titlovi/stremio"
 	"go-titlovi/titlovi"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -20,6 +22,7 @@ func BuildRouter(client *titlovi.Client, cache *bigcache.BigCache) *http.Handler
 
 	r.HandleFunc("/", homeHandler)
 	r.HandleFunc("/manifest.json", manifestHandler)
+	r.HandleFunc("/serve-subtitle/{type}/{mediaid}", serveSubtitleHandler)
 	r.HandleFunc("/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
 		subtitlesHandler(w, r, client, cache)
 	})
@@ -104,12 +107,14 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 		return
 	}
 
-	subtitles := make([]stremio.SubtitleItem, len(subtitleData))
+	subtitles := make([]*stremio.SubtitleItem, len(subtitleData))
 
 	for i, data := range subtitleData {
-		subtitles[i] = stremio.SubtitleItem{
-			Id:   strconv.Itoa(int(data.Id)),
-			Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", data.Link),
+		idStr := strconv.Itoa(int(data.Id))
+		servePath := fmt.Sprintf("%s:%s/serve-subtitle/%d/%s", ServerAddress, Port, data.Type, idStr)
+		subtitles[i] = &stremio.SubtitleItem{
+			Id:   idStr,
+			Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
 			Lang: fmt.Sprintf("%s|%s", data.Lang, SubtitleSuffix),
 		}
 		logger.LogInfo.Printf("subtitlesHandler: prepared %+v", subtitles[i])
@@ -117,11 +122,69 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 
 	logger.LogInfo.Printf("subtitlesHandler: got %d subtitles for '%s'", len(subtitles), imdbId)
 
-	CacheSubtitles(imdbId, cache, subtitles)
+	// CacheSubtitles(imdbId, cache, subtitles)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	jsonResponse, _ := json.Marshal(map[string]any{
 		"subtitles": subtitles,
 	})
 	w.Write(jsonResponse)
+}
+
+func serveSubtitleHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	path := r.URL.Path
+
+	mediaType, ok := params["type"]
+	if !ok {
+		logger.LogError.Printf("serveSubtitleHandler: failed to get 'type' from path, path was %s", path)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	mediaId, ok := params["mediaid"]
+	if !ok {
+		logger.LogError.Printf("serveSubtitleHandler: failed to get 'mediaid' from path, path was %s", path)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	url := fmt.Sprintf("%s/?type=%s&mediaid=%s", TitloviDownload, mediaType, mediaId)
+	resp, err := http.Get(url)
+	if err != nil {
+		logger.LogError.Printf("serveSubtitleHandler: failed to download subtitle at %s: %s", url, err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode > 299 {
+		logger.LogError.Printf("serveSubtitleHandler: status %d, %s: %s", resp.StatusCode, url, resp.Status)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.LogError.Printf("serveSubtitleHandler: failed to read response body from %s: %s", url, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	subData, err := ExtractSubtitleFromZIP(data)
+	if err != nil {
+		logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP from %s: %s", url, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	convertedSubData, err := ConvertSubtitleToVTT(subData)
+	if err != nil {
+		logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle from %s: %s", url, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	logger.LogInfo.Printf("serveSubtitleHandler: serving %s", url)
+	http.ServeContent(w, r, "file.vtt", time.Now().UTC(), bytes.NewReader(convertedSubData.Bytes()))
 }

@@ -17,10 +17,12 @@ var Manifest = stremio.Manifest{
 }
 
 var (
+	ServerAddress   string = "http://127.0.0.1"
 	Port            string = ""
 	TitloviUsername string = ""
 	TitloviPassword string = ""
 	TitloviApi      string = "https://kodi.titlovi.com/api/subtitles"
+	TitloviDownload string = "https://titlovi.com/download"
 	SubtitleSuffix  string = "Titlovi.com"
 )
 

@@ -17,6 +17,7 @@ type SubtitleData struct {
 	Title string `json:"Title"`
 	Link  string `json:"Link"`
 	Lang  string `json:"Lang"`
+	Type  int64  `json:"Type"`
 }
 
 type SubtitleDataResponse struct {
