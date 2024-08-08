@@ -1,4 +1,4 @@
-package main
+package common
 
 import (
 	"encoding/json"
@@ -7,12 +7,13 @@ import (
 	"go-titlovi/stremio"
 	"go-titlovi/titlovi"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
-func buildRouter(client *titlovi.Client) *mux.Router {
+func BuildRouter(client *titlovi.Client) *mux.Router {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/", homeHandler)
@@ -26,7 +27,7 @@ func buildRouter(client *titlovi.Client) *mux.Router {
 	return r
 }
 
-func serve(r *mux.Router) error {
+func Serve(r *mux.Router) error {
 	// CORS configuration
 	headersOk := handlers.AllowedHeaders([]string{
 		"Content-Type",
@@ -92,13 +93,6 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 		return
 	}
 
-	err := client.Login(false)
-	if err != nil {
-		logger.LogError.Printf("subtitlesHandler: %s", err.Error())
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
 	subtitleData, err := client.Search(imdbId, GetLanguagesToQuery())
 	if err != nil {
 		logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s", err.Error())
@@ -110,14 +104,16 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 
 	for i, data := range subtitleData {
 		subtitles[i] = stremio.SubtitleItem{
-			Id:   string(data.Id),
-			Url:  data.Link,
-			Lang: ConvertLangToISO(data.Lang),
+			Id:   strconv.Itoa(int(data.Id)),
+			Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", data.Link),
+			Lang: fmt.Sprintf("%s|%s", data.Lang, SubtitleSuffix),
 		}
-
+		logger.LogInfo.Printf("subtitlesHandler: prepared %+v", subtitles[i])
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	logger.LogInfo.Printf("subtitlesHandler: got %d subtitles for '%s'", len(subtitles), imdbId)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	jsonResponse, _ := json.Marshal(map[string]any{
 		"subtitles": subtitles,
 	})

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go-titlovi/common"
 	"go-titlovi/logger"
 	"go-titlovi/titlovi"
 
@@ -15,13 +16,13 @@ func main() {
 	if err != nil {
 		logger.LogFatal.Fatalf("main: failed to load environment file\n")
 	}
-	initConfig()
+	common.InitConfig()
 
-	client := titlovi.NewClient(TitloviUsername, TitloviPassword)
+	client := titlovi.NewClient(common.TitloviUsername, common.TitloviPassword)
 
-	router := buildRouter(client)
+	router := common.BuildRouter(client)
 
-	err = serve(router)
+	err = common.Serve(router)
 	if err != nil {
 		logger.LogFatal.Fatalf("main: fatal error when trying to serve: %s", err.Error())
 	}

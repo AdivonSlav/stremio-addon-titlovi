@@ -7,8 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/avast/retry-go"
 )
 
 type Client struct {
@@ -28,18 +31,7 @@ func NewClient(titloviUsername string, titloviPassword string) *Client {
 
 }
 
-func (c *Client) Login(force bool) error {
-	if c.loginData.Token != "" && !force {
-		expirationTime, err := time.Parse(time.RFC3339, c.loginData.ExpirationDate)
-		if err != nil {
-			logger.LogError.Printf("Login: unable to parse '%s' to an expiration date: %s", c.loginData.ExpirationDate, err)
-		}
-
-		if expirationTime.Before(time.Now()) {
-			return nil
-		}
-	}
-
+func (c *Client) Login() error {
 	params := url.Values{}
 	params.Add("username", c.titloviUsername)
 	params.Add("password", c.titloviPassword)
@@ -77,27 +69,46 @@ func (c *Client) Login(force bool) error {
 func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, error) {
 	params := url.Values{}
 	params.Add("token", c.loginData.Token)
-	params.Add("userId", string(c.loginData.UserId))
-	params.Add("imdbID", imdbId)
+	params.Add("userid", strconv.Itoa(int(c.loginData.UserId)))
+	params.Add("query", imdbId)
 	params.Add("lang", strings.Join(languages, "|"))
 
 	url := fmt.Sprintf("%s/search?%s", c.titloviApi, params.Encode())
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("Search: failed to search: %w", err)
-	}
-	defer resp.Body.Close()
+	var body []byte
 
-	if resp.StatusCode > 299 {
-		logger.LogError.Printf("Search: %d, %s: %s", resp.StatusCode, url, resp.Status)
-		return nil, fmt.Errorf("Search: failed to search with message: %s", resp.Status)
-	} else {
+	err := retry.Do(func() error {
+		resp, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("failed to search: %w", err)
+		}
+
+		if resp.StatusCode == 401 {
+			// Retry search with new token
+			loginErr := c.Login()
+			if loginErr != nil {
+				logger.LogError.Printf("Search: failed to search due to login failure: %s", loginErr.Error())
+			}
+
+			params.Set("token", c.loginData.Token)
+			params.Set("userid", strconv.Itoa(int(c.loginData.UserId)))
+			url = fmt.Sprintf("%s/search?%s", c.titloviApi, params.Encode())
+		}
+
+		if resp.StatusCode > 299 {
+			return fmt.Errorf("status %d, %s: %s", resp.StatusCode, url, resp.Status)
+		} else {
+			body, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to read response body: %w", err)
+			}
+		}
+
 		logger.LogInfo.Printf("Search: %d, %s", resp.StatusCode, url)
-	}
 
-	body, err := io.ReadAll(resp.Body)
+		return nil
+	}, retry.Attempts(3), retry.Delay(300*time.Millisecond))
 	if err != nil {
-		return nil, fmt.Errorf("Search: failed to read response body: %w", err)
+		return nil, fmt.Errorf("Search: %w", err)
 	}
 
 	subtitleResponse := SubtitleDataResponse{}

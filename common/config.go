@@ -1,4 +1,4 @@
-package main
+package common
 
 import (
 	"go-titlovi/stremio"
@@ -21,9 +21,10 @@ var (
 	TitloviUsername string = ""
 	TitloviPassword string = ""
 	TitloviApi      string = "https://kodi.titlovi.com/api/subtitles"
+	SubtitleSuffix  string = "Titlovi.com"
 )
 
-func initConfig() {
+func InitConfig() {
 	Port = os.Getenv("PORT")
 	if Port == "" {
 		log.Fatalf("The environment variable PORT must be supplied\n")
