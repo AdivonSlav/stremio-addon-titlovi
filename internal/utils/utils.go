@@ -3,12 +3,38 @@ package utils
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"go-titlovi/web"
 	"io"
 	"strings"
 
 	"github.com/asticode/go-astisub"
 )
+
+// EncodeCreds encodes credentials into a concatenated base64 string.
+func EncodeCreds(c web.Credentials) string {
+	creds := fmt.Sprintf("%s:%s", c.Username, c.Password)
+	return base64.RawURLEncoding.EncodeToString([]byte(creds))
+}
+
+func DecodeCreds(c string) (*web.Credentials, error) {
+	data, err := base64.RawURLEncoding.DecodeString(c)
+	if err != nil {
+		return nil, fmt.Errorf("DecodeCreds: %w", err)
+	}
+
+	split := strings.Split(string(data), ":")
+	if len(split) != 2 {
+		return nil, errors.New("DecodeCreds: the decoded credentials were not formatted correctly")
+	}
+
+	return &web.Credentials{
+		Username: split[0],
+		Password: split[1],
+	}, nil
+}
 
 // ExtractSubtitleFromZIP extracts the first found subtitle found from ZIP file.
 func ExtractSubtitleFromZIP(zipData []byte) ([]byte, error) {

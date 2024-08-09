@@ -1,0 +1,26 @@
+<style type="text/css">
+  .error {
+    color: red;
+  }
+</style>
+
+<h1>Configure your Titlovi.com credentials</h1>
+<form action="/configure" method="POST" novalidate>
+  <div>
+    {{ with .Errors.Username }}
+    <p class="error">{{ . }}</p>
+    {{ end }}
+    <p><label>Username:</label></p>
+    <p><input type="text" name="username" value="{{ .Username }}"></p>
+  </div>
+  <div>
+    {{ with .Errors.Password }}
+    <p class="error">{{ . }}</p>
+    {{ end }}
+    <p><label>Password:</label></p>
+    <p><input type="password" name="password" value="{{ .Password }}"></p>
+  </div>
+  <div>
+    <input type="submit" value="Install addon">
+  </div>
+</form>

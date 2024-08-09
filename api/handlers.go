@@ -9,6 +9,7 @@ import (
 	"go-titlovi/internal/stremio"
 	"go-titlovi/internal/titlovi"
 	"go-titlovi/internal/utils"
+	"go-titlovi/web"
 	"net/http"
 	"strconv"
 	"time"
@@ -20,24 +21,36 @@ import (
 
 // BuildRouter builds a new router with handler functions to handle all necessary routes and
 // also appends middleware.
-func BuildRouter(client *titlovi.Client, cache *cache.Client) *http.Handler {
+func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
 	r := mux.NewRouter()
 
 	// Route handlers
 	r.HandleFunc("/", homeHandler)
-	r.HandleFunc("/manifest.json", manifestHandler)
+	r.HandleFunc("/configure", configureHandler)
+	r.HandleFunc("/{creds}/manifest.json", manifestHandler)
 	r.HandleFunc("/serve-subtitle/{type}/{mediaid}", func(w http.ResponseWriter, r *http.Request) {
 		serveSubtitleHandler(w, r, client)
 	})
-	r.HandleFunc("/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/{creds}/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
 		subtitlesHandler(w, r, client)
 	})
 
-	// Middleware
-	handler := cache.Middleware(r)
-	handler = http.TimeoutHandler(handler, 30*time.Second, "")
+	// Create a caching router that wraps the main router
+	cachedRouter := mux.NewRouter()
+	cachedRouter.PathPrefix("/").Handler(r)
 
-	return &handler
+	// Apply caching middleware and timeout handler to the caching router
+	cachedHandler := cache.Middleware(cachedRouter)
+	timeoutHandler := http.TimeoutHandler(cachedHandler, 30*time.Second, "")
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/configure" {
+			configureHandler(w, r)
+		} else {
+			// Apply caching and timeout middleware to other routes
+			timeoutHandler.ServeHTTP(w, r)
+		}
+	})
 }
 
 // Serve calls serve on a handler and listens to incoming requests.
@@ -82,12 +95,24 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 // manifestHandler handles requests for the Stremio manifest.
 func manifestHandler(w http.ResponseWriter, r *http.Request) {
-	jsonResponse, err := json.Marshal(config.Manifest)
+	params := mux.Vars(r)
+
+	logger.LogInfo.Printf("manifestHandler: received request to %s", r.URL.Path)
+
+	manifest := config.Manifest
+
+	if _, ok := params["creds"]; !ok {
+		manifest.BehaviourHints.ConfigurationRequired = true
+	} else {
+		manifest.BehaviourHints.ConfigurationRequired = false
+	}
+
+	jsonResponse, err := json.Marshal(manifest)
 	if err != nil {
 		logger.LogError.Printf("manifestHandler: failed to marshal json: %v", err)
 	}
 
-	logger.LogInfo.Printf("manifestHandler: received request to %s", r.URL.Path)
+	logger.LogInfo.Printf("Manifest was: %+v", manifest)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
@@ -100,7 +125,21 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 
 	logger.LogInfo.Printf("subtitlesHandler: received request to %s", r.URL.Path)
 
-	_, ok := params["type"]
+	credsEnc, ok := params["creds"]
+	if !ok {
+		logger.LogError.Printf("subtitlesHandler: failed to get 'creds' from path, path was %s", path)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	creds, err := utils.DecodeCreds(credsEnc)
+	if err != nil {
+		logger.LogError.Printf("subtitlesHandler: invalid creds: %s", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	_, ok = params["type"]
 	if !ok {
 		logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s", path)
 		w.WriteHeader(http.StatusBadRequest)
@@ -114,7 +153,7 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 		return
 	}
 
-	subtitleData, err := client.Search(imdbId, config.TitloviLanguages)
+	subtitleData, err := client.Search(imdbId, config.TitloviLanguages, creds.Username, creds.Password)
 	if err != nil {
 		logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
 		w.WriteHeader(http.StatusBadRequest)
@@ -192,4 +231,38 @@ func serveSubtitleHandler(w http.ResponseWriter, r *http.Request, client *titlov
 
 	logger.LogInfo.Printf("serveSubtitleHandler: serving %s", r.URL.Path)
 	http.ServeContent(w, r, "file.vtt", time.Now().UTC(), bytes.NewReader(convertedSubData.Bytes()))
+}
+
+// configureHandler handles requests for addon configuration and redirects to Stremio when done.
+func configureHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusNotAcceptable)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		if err := config.ConfigTemplate.Execute(w, nil); err != nil {
+			logger.LogError.Printf("configureHandler: failed to execute template: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		return
+	}
+
+	creds := web.Credentials{
+		Username: r.FormValue("username"),
+		Password: r.FormValue("password"),
+	}
+
+	if !creds.Validate() {
+		if err := config.ConfigTemplate.Execute(w, creds); err != nil {
+			logger.LogError.Printf("configureHandler: failed to execute template: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		return
+	}
+
+	redirectUrl := fmt.Sprintf("%s/%s/manifest.json", config.ConfigureRedirectAddress, utils.EncodeCreds(creds))
+	logger.LogInfo.Printf("configureHandler: redirecting to %s", redirectUrl)
+
+	http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 }

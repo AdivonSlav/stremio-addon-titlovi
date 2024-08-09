@@ -46,7 +46,7 @@ func main() {
 	router := api.BuildRouter(titloviClient, cacheClient)
 
 	go func() {
-		err = api.Serve(router)
+		err = api.Serve(&router)
 		if err != nil {
 			logger.LogFatal.Fatalf("main: fatal error when trying to serve: %s", err.Error())
 		}

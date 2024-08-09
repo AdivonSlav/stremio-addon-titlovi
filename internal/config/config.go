@@ -1,9 +1,11 @@
 package config
 
 import (
+	"go-titlovi/internal/logger"
 	"go-titlovi/internal/stremio"
-	"log"
+	"html/template"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/victorspringer/http-cache/adapter/memory"
@@ -19,11 +21,19 @@ var Manifest = stremio.Manifest{
 	Types:       []string{"movie", "series"},
 	Resources:   []string{"subtitles"},
 	IdPrefixes:  []string{"tt"},
+	BehaviourHints: stremio.BehaviourHints{
+		Configurable:          true,
+		ConfigurationRequired: true,
+	},
 }
 
 var (
-	ServerAddress string = "http://127.0.0.1"
-	Port          string = ""
+	Development bool = false
+
+	ServerAddress            string = ""
+	ConfigureRedirectAddress string = ""
+
+	Port string = ""
 
 	TitloviUsername string = ""                                       // Username for the Titlovi.com account.
 	TitloviPassword string = ""                                       // Password for the Titlovi.com account.
@@ -41,6 +51,8 @@ var (
 	}
 
 	SubtitleSuffix string = "Titlovi.com" // This will be appended as a suffix to subtitle languages when returned to Stremio.
+
+	ConfigTemplate *template.Template = template.Must(template.ParseFiles("web/templates/configuration-form.html"))
 )
 
 const (
@@ -55,18 +67,33 @@ const (
 
 // InitConfig initializes some global variables from the environment.
 func InitConfig() {
+	var err error
+
+	isDev := os.Getenv("DEVELOPMENT")
+	if isDev == "" {
+		Development = false
+	} else {
+		Development, err = strconv.ParseBool(isDev)
+		if err != nil {
+			logger.LogFatal.Fatalf("InitConfig: cannot set DEVELOPMENT: %s", err)
+		}
+	}
+
+	ServerAddress = os.Getenv("SERVER_ADDRESS")
+	if ServerAddress == "" {
+		ServerAddress = "http://127.0.0.1"
+	}
+
+	ConfigureRedirectAddress = os.Getenv("REDIRECT_ADDRESS")
+	if ConfigureRedirectAddress == "" {
+		ConfigureRedirectAddress = "stremio://127.0.0.1:5555"
+	}
+
 	Port = os.Getenv("PORT")
 	if Port == "" {
-		log.Fatalf("The environment variable PORT must be supplied\n")
+		logger.LogFatal.Fatalf("InitConfig: The environment variable PORT must be supplied")
 	}
+
 	TitloviUsername = os.Getenv("TITLOVI_USERNAME")
-
-	if TitloviUsername == "" {
-		log.Fatalf("The environment variable TITLOVI_USERNAME must be supplied\n")
-	}
-
 	TitloviPassword = os.Getenv("TITLOVI_PASSWORD")
-	if TitloviPassword == "" {
-		log.Fatalf("The environment variable TITLOVI_PASSWORD must be supplied\n")
-	}
 }

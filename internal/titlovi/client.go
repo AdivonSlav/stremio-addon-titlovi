@@ -31,10 +31,10 @@ func NewClient(retryAttempts uint, retryDelay time.Duration) *Client {
 }
 
 // Login attempts a login to the Titlovi.com API and internally stores the retrieved token if succesful.
-func (c *Client) Login() error {
+func (c *Client) Login(username, password string) error {
 	params := url.Values{}
-	params.Add("username", config.TitloviUsername)
-	params.Add("password", config.TitloviPassword)
+	params.Add("username", username)
+	params.Add("password", password)
 	url := fmt.Sprintf("%s/gettoken?%s", config.TitloviApi, params.Encode())
 
 	resp, err := http.Post(url, "application/x-www-form-urlencoded", nil)
@@ -67,7 +67,7 @@ func (c *Client) Login() error {
 }
 
 // Search performs a search on the Titlovi.com API and returns a slice of titlovi.SubtitleData if succesful
-func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, error) {
+func (c *Client) Search(imdbId string, languages []string, username, password string) ([]SubtitleData, error) {
 	params := url.Values{}
 	params.Add("token", c.loginData.Token)
 	params.Add("userid", strconv.Itoa(int(c.loginData.UserId)))
@@ -85,7 +85,7 @@ func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, erro
 
 		if resp.StatusCode == 401 {
 			// Retry search with new token
-			loginErr := c.Login()
+			loginErr := c.Login(username, password)
 			if loginErr != nil {
 				logger.LogError.Printf("failed to search due to login failure: %s", loginErr.Error())
 			}
