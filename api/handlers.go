@@ -9,32 +9,40 @@ import (
 	"go-titlovi/internal/stremio"
 	"go-titlovi/internal/titlovi"
 	"go-titlovi/internal/utils"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	cache "github.com/victorspringer/http-cache"
 )
 
-func BuildRouter(client *titlovi.Client) *http.Handler {
+// BuildRouter builds a new router with handler functions to handle all necessary routes and
+// also appends middleware.
+func BuildRouter(client *titlovi.Client, cache *cache.Client) *http.Handler {
 	r := mux.NewRouter()
 
+	// Route handlers
 	r.HandleFunc("/", homeHandler)
 	r.HandleFunc("/manifest.json", manifestHandler)
-	r.HandleFunc("/serve-subtitle/{type}/{mediaid}", serveSubtitleHandler)
+	r.HandleFunc("/serve-subtitle/{type}/{mediaid}", func(w http.ResponseWriter, r *http.Request) {
+		serveSubtitleHandler(w, r, client)
+	})
 	r.HandleFunc("/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
 		subtitlesHandler(w, r, client)
 	})
 
-	http.Handle("/", r)
-
-	handler := http.TimeoutHandler(r, 30*time.Second, "")
+	// Middleware
+	handler := cache.Middleware(r)
+	handler = http.TimeoutHandler(handler, 30*time.Second, "")
 
 	return &handler
 }
 
+// Serve calls serve on a handler and listens to incoming requests.
+//
+// CORS is also configured to work with Stremio.
 func Serve(r *http.Handler) error {
 	// CORS configuration
 	headersOk := handlers.AllowedHeaders([]string{
@@ -50,7 +58,7 @@ func Serve(r *http.Handler) error {
 	methodsOk := handlers.AllowedMethods([]string{"GET"})
 
 	// Listen
-	logger.LogInfo.Printf("Serve: Listening on port %s...\n", config.Port)
+	logger.LogInfo.Printf("Serve: listening on port %s...\n", config.Port)
 	err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Port), handlers.CORS(originsOk, headersOk, methodsOk)(*r))
 	if err != nil {
 		return fmt.Errorf("Serve: %w", err)
@@ -59,51 +67,56 @@ func Serve(r *http.Handler) error {
 	return nil
 }
 
+// homeHandler handles requests to the root and provides a dummy response.
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	jsonResponse, err := json.Marshal(map[string]any{"Path": "/"})
+	jsonResponse, err := json.Marshal(map[string]any{"path": "/"})
 	if err != nil {
-		logger.LogError.Printf("Failed to marshal json: %v", err)
+		logger.LogError.Printf("homeHandler: failed to marshal json: %v", err)
 	}
 
-	logger.LogInfo.Printf("Received request to %s\n", r.URL.Path)
+	logger.LogInfo.Printf("homeHandler: received request to %s", r.URL.Path)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
 }
 
+// manifestHandler handles requests for the Stremio manifest.
 func manifestHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse, err := json.Marshal(config.Manifest)
 	if err != nil {
-		logger.LogError.Printf("Failed to marshal json: %v", err)
+		logger.LogError.Printf("manifestHandler: failed to marshal json: %v", err)
 	}
 
-	logger.LogInfo.Printf("Received request to %s\n", r.URL.Path)
+	logger.LogInfo.Printf("manifestHandler: received request to %s", r.URL.Path)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
 }
 
+// subtitlesHandler handles requests for Titlovi.com search results.
 func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
 	path := r.URL.Path
 	params := mux.Vars(r)
 
-	logger.LogInfo.Printf("Received request to %s\n", r.URL.Path)
+	logger.LogInfo.Printf("subtitlesHandler: received request to %s", r.URL.Path)
 
 	_, ok := params["type"]
 	if !ok {
-		logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+		logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s", path)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	imdbId, ok := params["id"]
 	if !ok {
-		logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s\n", path)
+		logger.LogError.Printf("subtitlesHandler: failed to get 'id' from path, path was %s", path)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	subtitleData, err := client.Search(imdbId, utils.GetLanguagesToQuery())
+	subtitleData, err := client.Search(imdbId, config.TitloviLanguages)
 	if err != nil {
-		logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s", err.Error())
+		logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -130,9 +143,12 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 	w.Write(jsonResponse)
 }
 
-func serveSubtitleHandler(w http.ResponseWriter, r *http.Request) {
+// serveSubtitleHandler handles requests for downloading specific subtitles from Titlovi.com.
+func serveSubtitleHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
 	params := mux.Vars(r)
 	path := r.URL.Path
+
+	logger.LogInfo.Printf("subtitlesHandler: received request to %s", path)
 
 	mediaType, ok := params["type"]
 	if !ok {
@@ -148,42 +164,32 @@ func serveSubtitleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url := fmt.Sprintf("%s/?type=%s&mediaid=%s", config.TitloviDownload, mediaType, mediaId)
-	resp, err := http.Get(url)
+	// We download the subtitle as a blob from Titlovi.com
+	data, err := client.Download(mediaType, mediaId)
 	if err != nil {
-		logger.LogError.Printf("serveSubtitleHandler: failed to download subtitle at %s: %s", url, err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode > 299 {
-		logger.LogError.Printf("serveSubtitleHandler: status %d, %s: %s", resp.StatusCode, url, resp.Status)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.LogError.Printf("serveSubtitleHandler: failed to read response body from %s: %s", url, err)
+		logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %s: %s", err, path)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
+	// Titlovi.com responds with subtitles that are compressed in ZIP files.
+	// We need to open this ZIP file and extract the first found subtitle as a byte blob.
 	subData, err := utils.ExtractSubtitleFromZIP(data)
 	if err != nil {
-		logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP from %s: %s", url, err)
+		logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %s: %s", err, path)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
+	// Then, to make sure Stremio has no issues, we take the subtitle and convert it to VTT.
+	// The conversion also ensures UTF-8(?)
 	convertedSubData, err := utils.ConvertSubtitleToVTT(subData)
 	if err != nil {
-		logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle from %s: %s", url, err)
+		logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	logger.LogInfo.Printf("serveSubtitleHandler: serving %s", url)
+	logger.LogInfo.Printf("serveSubtitleHandler: serving %s", r.URL.Path)
 	http.ServeContent(w, r, "file.vtt", time.Now().UTC(), bytes.NewReader(convertedSubData.Bytes()))
 }

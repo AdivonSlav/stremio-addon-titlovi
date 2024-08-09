@@ -3,6 +3,7 @@ package titlovi
 import (
 	"encoding/json"
 	"fmt"
+	"go-titlovi/internal/config"
 	"go-titlovi/internal/logger"
 	"io"
 	"net/http"
@@ -14,28 +15,27 @@ import (
 	"github.com/avast/retry-go"
 )
 
+// Client is an implementation to fetch search results from Titlovi.com.
 type Client struct {
-	titloviApi string
+	loginData LoginData
 
-	titloviUsername string
-	titloviPassword string
-	loginData       LoginData
+	retryAttempts uint
+	retryDelay    time.Duration
 }
 
-func NewClient(titloviUsername string, titloviPassword string) *Client {
+func NewClient(retryAttempts uint, retryDelay time.Duration) *Client {
 	return &Client{
-		titloviUsername: titloviUsername,
-		titloviPassword: titloviPassword,
-		titloviApi:      "https://kodi.titlovi.com/api/subtitles",
+		retryAttempts: retryAttempts,
+		retryDelay:    retryDelay,
 	}
-
 }
 
+// Login attempts a login to the Titlovi.com API and internally stores the retrieved token if succesful.
 func (c *Client) Login() error {
 	params := url.Values{}
-	params.Add("username", c.titloviUsername)
-	params.Add("password", c.titloviPassword)
-	url := fmt.Sprintf("%s/gettoken?%s", c.titloviApi, params.Encode())
+	params.Add("username", config.TitloviUsername)
+	params.Add("password", config.TitloviPassword)
+	url := fmt.Sprintf("%s/gettoken?%s", config.TitloviApi, params.Encode())
 
 	resp, err := http.Post(url, "application/x-www-form-urlencoded", nil)
 	if err != nil {
@@ -66,6 +66,7 @@ func (c *Client) Login() error {
 	return err
 }
 
+// Search performs a search on the Titlovi.com API and returns a slice of titlovi.SubtitleData if succesful
 func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, error) {
 	params := url.Values{}
 	params.Add("token", c.loginData.Token)
@@ -73,7 +74,7 @@ func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, erro
 	params.Add("query", imdbId)
 	params.Add("lang", strings.Join(languages, "|"))
 
-	url := fmt.Sprintf("%s/search?%s", c.titloviApi, params.Encode())
+	url := fmt.Sprintf("%s/search?%s", config.TitloviApi, params.Encode())
 	var body []byte
 
 	err := retry.Do(func() error {
@@ -86,12 +87,12 @@ func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, erro
 			// Retry search with new token
 			loginErr := c.Login()
 			if loginErr != nil {
-				logger.LogError.Printf("Search: failed to search due to login failure: %s", loginErr.Error())
+				logger.LogError.Printf("failed to search due to login failure: %s", loginErr.Error())
 			}
 
 			params.Set("token", c.loginData.Token)
 			params.Set("userid", strconv.Itoa(int(c.loginData.UserId)))
-			url = fmt.Sprintf("%s/search?%s", c.titloviApi, params.Encode())
+			url = fmt.Sprintf("%s/search?%s", config.TitloviApi, params.Encode())
 		}
 
 		if resp.StatusCode > 299 {
@@ -103,10 +104,8 @@ func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, erro
 			}
 		}
 
-		logger.LogInfo.Printf("Search: %d, %s", resp.StatusCode, url)
-
 		return nil
-	}, retry.Attempts(3), retry.Delay(300*time.Millisecond))
+	}, retry.Attempts(c.retryAttempts), retry.Delay(c.retryDelay))
 	if err != nil {
 		return nil, fmt.Errorf("Search: %w", err)
 	}
@@ -118,4 +117,34 @@ func (c *Client) Search(imdbId string, languages []string) ([]SubtitleData, erro
 	}
 
 	return subtitleResponse.Subtitles, nil
+}
+
+// Download downloads a subtitle from Titlovi.com based on the provided type and ID and returns it as a blob.
+func (c *Client) Download(mediaType string, mediaId string) ([]byte, error) {
+	url := fmt.Sprintf("%s/?type=%s&mediaid=%s", config.TitloviDownload, mediaType, mediaId)
+	var body []byte
+
+	err := retry.Do(func() error {
+		resp, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("failed to download subtitle at %s: %s", url, err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode > 299 {
+			return fmt.Errorf("status %d, %s: %s", resp.StatusCode, url, resp.Status)
+		} else {
+			body, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to read response body: %w", err)
+			}
+		}
+
+		return nil
+	}, retry.Attempts(c.retryAttempts), retry.Delay(c.retryDelay))
+	if err != nil {
+		return nil, fmt.Errorf("Download: %w", err)
+	}
+
+	return body, nil
 }

@@ -10,41 +10,14 @@ import (
 	"github.com/asticode/go-astisub"
 )
 
-var langMap = map[string]string{
-	"Bosanski": "bos",
-	"Hrvatski": "hrv",
-	"Srpski":   "srb",
-	"Cirilica": "cpb",
-	"English":  "eng",
-}
-
-func ConvertLangToISO(language string) string {
-	code, ok := langMap[language]
-	if !ok {
-		return ""
-	}
-
-	return code
-}
-
-func GetLanguagesToQuery() []string {
-	keys := make([]string, len(langMap))
-
-	i := 0
-	for k := range langMap {
-		keys[i] = k
-		i++
-	}
-
-	return keys
-}
-
+// ExtractSubtitleFromZIP extracts the first found subtitle found from ZIP file.
 func ExtractSubtitleFromZIP(zipData []byte) ([]byte, error) {
 	zipReader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
 		return nil, fmt.Errorf("ExtractSubtitleFromZIP: failed to read subtitle ZIP file: %w", err)
 	}
 
+	// Only look for SRT files
 	desiredExtension := ".srt"
 	var buffer []byte
 
@@ -67,6 +40,7 @@ func ExtractSubtitleFromZIP(zipData []byte) ([]byte, error) {
 	return buffer, nil
 }
 
+// ConvertSubtitleToVTT converts a subtitle to VTT and returns it as a byte buffer.
 func ConvertSubtitleToVTT(subtitleData []byte) (*bytes.Buffer, error) {
 	subtitle, err := astisub.ReadFromSRT(bytes.NewReader(subtitleData))
 	if err != nil {
