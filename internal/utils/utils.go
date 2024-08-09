@@ -3,13 +3,10 @@ package utils
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"go-titlovi/internal/stremio"
 	"io"
 	"strings"
 
-	"github.com/allegro/bigcache"
 	"github.com/asticode/go-astisub"
 )
 
@@ -40,32 +37,6 @@ func GetLanguagesToQuery() []string {
 	}
 
 	return keys
-}
-
-func CacheSubtitles(imdbId string, cache *bigcache.BigCache, subtitles []*stremio.SubtitleItem) error {
-	data, err := json.Marshal(subtitles)
-	if err != nil {
-		return fmt.Errorf("CacheSubtitles: %w", err)
-	}
-
-	cache.Set(imdbId, data)
-
-	return nil
-}
-
-func GetSubtitlesFromCache(imdbId string, cache *bigcache.BigCache) ([]*stremio.SubtitleItem, error) {
-	data, err := cache.Get(imdbId)
-	if err != nil {
-		return nil, fmt.Errorf("GetSubtitlesFromCache: %w", err)
-	}
-
-	var subtitles []*stremio.SubtitleItem
-	err = json.Unmarshal(data, &subtitles)
-	if err != nil {
-		return nil, fmt.Errorf("GetSubtitlesFromCache: failed to unmarshal subtitles from cache: %w", err)
-	}
-
-	return subtitles, nil
 }
 
 func ExtractSubtitleFromZIP(zipData []byte) ([]byte, error) {

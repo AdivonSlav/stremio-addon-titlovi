@@ -14,19 +14,18 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/allegro/bigcache"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
-func BuildRouter(client *titlovi.Client, cache *bigcache.BigCache) *http.Handler {
+func BuildRouter(client *titlovi.Client) *http.Handler {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/", homeHandler)
 	r.HandleFunc("/manifest.json", manifestHandler)
 	r.HandleFunc("/serve-subtitle/{type}/{mediaid}", serveSubtitleHandler)
 	r.HandleFunc("/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
-		subtitlesHandler(w, r, client, cache)
+		subtitlesHandler(w, r, client)
 	})
 
 	http.Handle("/", r)
@@ -82,7 +81,7 @@ func manifestHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonResponse)
 }
 
-func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client, cache *bigcache.BigCache) {
+func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
 	path := r.URL.Path
 	params := mux.Vars(r)
 
@@ -123,8 +122,6 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 	}
 
 	logger.LogInfo.Printf("subtitlesHandler: got %d subtitles for '%s'", len(subtitles), imdbId)
-
-	// CacheSubtitles(imdbId, cache, subtitles)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	jsonResponse, _ := json.Marshal(map[string]any{
