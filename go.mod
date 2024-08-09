@@ -7,7 +7,6 @@ require (
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/gorilla/handlers v1.5.2
 	github.com/gorilla/mux v1.8.1
-	github.com/joho/godotenv v1.5.1
 	github.com/victorspringer/http-cache v0.0.0-20240523143319-7d9f48f8ab91
 )
 

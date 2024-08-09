@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/joho/godotenv"
 	cache "github.com/victorspringer/http-cache"
 	"github.com/victorspringer/http-cache/adapter/memory"
 )
@@ -18,10 +17,6 @@ func main() {
 	logger.InitLoggers()
 	logger.LogInfo.Printf("main: initializing...")
 
-	err := godotenv.Load()
-	if err != nil {
-		logger.LogFatal.Fatalf("main: failed to load environment file")
-	}
 	config.InitConfig()
 
 	memcached, err := memory.NewAdapter(
