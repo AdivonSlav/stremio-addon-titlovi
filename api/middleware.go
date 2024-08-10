@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	cache "github.com/victorspringer/http-cache"
 )
 
 type contextKey string
@@ -39,7 +40,7 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.responseData.status = statusCode       // capture status code
 }
 
-func WithLogging(h http.Handler) http.Handler {
+func WithLogging(next http.Handler) http.Handler {
 	loggingFn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -48,7 +49,7 @@ func WithLogging(h http.Handler) http.Handler {
 			responseData:   &responseData{},
 		}
 
-		h.ServeHTTP(&lw, r)
+		next.ServeHTTP(&lw, r)
 
 		duration := time.Since(start)
 
@@ -59,7 +60,7 @@ func WithLogging(h http.Handler) http.Handler {
 	return http.HandlerFunc(loggingFn)
 }
 
-func WithAuth(h http.Handler) http.Handler {
+func WithAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 
@@ -81,6 +82,10 @@ func WithAuth(h http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), UserConfigContextKey, userConfig)
-		h.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func WithCaching(next http.Handler, cache *cache.Client) http.Handler {
+	return cache.Middleware(next)
 }

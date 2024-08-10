@@ -24,30 +24,24 @@ import (
 func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
 	r := mux.NewRouter()
 
-	cachedRouter := mux.NewRouter()
-	cachedRouter.HandleFunc("/", homeHandler)
-	cachedRouter.HandleFunc("/manifest.json", manifestHandler)
-	cachedRouter.HandleFunc("/{userConfig}/manifest.json", manifestHandler)
-	cachedRouter.HandleFunc("/serve-subtitle/{type}/{mediaid}", func(w http.ResponseWriter, r *http.Request) {
-		serveSubtitleHandler(w, r, client)
-	})
-	cachedRouter.HandleFunc("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
-		subtitlesHandler(w, r, client)
-	})
+	r.Handle("/", WithCaching(http.HandlerFunc(homeHandler()), cache))
 
-	cachedRouter.Use(WithLogging)
-	cachedRouter.Use(cache.Middleware)
+	r.Handle("/manifest.json", WithCaching(http.HandlerFunc(manifestHandler()), cache))
+	r.Handle("/{userConfig}/manifest.json", WithCaching(
+		WithAuth(http.HandlerFunc(manifestHandler())),
+		cache,
+	))
 
-	// We don't want caching for the /configure route so we just make a new router here.
-	uncachedRouter := mux.NewRouter()
-	uncachedRouter.HandleFunc("/configure", configureHandler)
-	uncachedRouter.HandleFunc("/{userConfig}/configure", configureHandler)
+	r.Handle("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", WithCaching(
+		WithAuth(http.HandlerFunc(subtitlesHandler(client))),
+		cache,
+	))
+	r.Handle("/serve-subtitle/{type}/{mediaid}", WithCaching(http.HandlerFunc(serveSubtitleHandler(client)), cache))
 
-	uncachedRouter.Use(WithLogging)
+	r.Handle("/configure", http.HandlerFunc(configureHandler()))
+	r.Handle("/{userConfig}/configure", WithAuth(http.HandlerFunc(configureHandler())))
 
-	r.PathPrefix("/configure").Handler(uncachedRouter)
-	r.PathPrefix("/{userConfig}/configure").Handler(uncachedRouter)
-	r.PathPrefix("/").Handler(cachedRouter)
+	r.Use(WithLogging)
 
 	return r
 }
@@ -80,191 +74,193 @@ func Serve(r *http.Handler) error {
 }
 
 // homeHandler handles requests to the root and provides a dummy response.
-func homeHandler(w http.ResponseWriter, r *http.Request) {
-	jsonResponse, err := json.Marshal(map[string]any{"path": "/"})
-	if err != nil {
-		logger.LogError.Printf("homeHandler: failed to marshal json: %v", err)
-	}
+func homeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse, err := json.Marshal(map[string]any{"path": "/"})
+		if err != nil {
+			logger.LogError.Printf("homeHandler: failed to marshal json: %v", err)
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(jsonResponse)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonResponse)
+	}
 }
 
 // manifestHandler handles requests for the Stremio manifest.
-func manifestHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
+func manifestHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		manifest := config.Manifest
 
-	manifest := config.Manifest
+		userConfig := r.Context().Value(UserConfigContextKey).(*stremio.UserConfig)
+		if userConfig != nil {
+			manifest.BehaviourHints.ConfigurationRequired = false
+		} else {
+			manifest.BehaviourHints.ConfigurationRequired = true
+		}
 
-	if _, ok := params["userConfig"]; !ok {
-		manifest.BehaviourHints.ConfigurationRequired = true
-	} else {
-		manifest.BehaviourHints.ConfigurationRequired = false
+		jsonResponse, err := json.Marshal(manifest)
+		if err != nil {
+			logger.LogError.Printf("manifestHandler: failed to marshal json: %v", err)
+		}
+
+		logger.LogInfo.Printf("Manifest was: %+v", manifest)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonResponse)
 	}
-
-	jsonResponse, err := json.Marshal(manifest)
-	if err != nil {
-		logger.LogError.Printf("manifestHandler: failed to marshal json: %v", err)
-	}
-
-	logger.LogInfo.Printf("Manifest was: %+v", manifest)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(jsonResponse)
 }
 
 // subtitlesHandler handles requests for Titlovi.com search results.
-func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
-	path := r.URL.Path
-	params := mux.Vars(r)
+func subtitlesHandler(client *titlovi.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params := mux.Vars(r)
+		path := r.URL.Path
 
-	credsEnc, ok := params["creds"]
-	if !ok {
-		logger.LogError.Printf("subtitlesHandler: failed to get 'creds' from path, path was %s", path)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	creds, err := utils.DecodeUserConfig(credsEnc)
-	if err != nil {
-		logger.LogError.Printf("subtitlesHandler: invalid creds: %s", err)
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	_, ok = params["type"]
-	if !ok {
-		logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s", path)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	imdbId, ok := params["id"]
-	if !ok {
-		logger.LogError.Printf("subtitlesHandler: failed to get 'id' from path, path was %s", path)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	subtitleData, err := client.Search(imdbId, config.TitloviLanguages, creds.Username, creds.Password)
-	if err != nil {
-		logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	subtitles := make([]*stremio.SubtitleItem, len(subtitleData))
-
-	for i, data := range subtitleData {
-		idStr := strconv.Itoa(int(data.Id))
-		servePath := fmt.Sprintf("%s/serve-subtitle/%d/%s", config.ServerAddress, data.Type, idStr)
-		subtitles[i] = &stremio.SubtitleItem{
-			Id:   idStr,
-			Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
-			Lang: fmt.Sprintf("%s|%s", data.Lang, config.SubtitleSuffix),
+		userConfig := r.Context().Value(UserConfigContextKey).(*stremio.UserConfig)
+		if userConfig == nil {
+			logger.LogError.Printf("subtitlesHandler: user config was nil")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
-		logger.LogInfo.Printf("subtitlesHandler: prepared %+v", subtitles[i])
+
+		_, ok := params["type"]
+		if !ok {
+			logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s", path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		imdbId, ok := params["id"]
+		if !ok {
+			logger.LogError.Printf("subtitlesHandler: failed to get 'id' from path, path was %s", path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		subtitleData, err := client.Search(imdbId, config.TitloviLanguages, userConfig.Username, userConfig.Password)
+		if err != nil {
+			logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		subtitles := make([]*stremio.SubtitleItem, len(subtitleData))
+
+		for i, data := range subtitleData {
+			idStr := strconv.Itoa(int(data.Id))
+			servePath := fmt.Sprintf("%s/serve-subtitle/%d/%s", config.ServerAddress, data.Type, idStr)
+			subtitles[i] = &stremio.SubtitleItem{
+				Id:   idStr,
+				Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
+				Lang: fmt.Sprintf("%s|%s", data.Lang, config.SubtitleSuffix),
+			}
+			logger.LogInfo.Printf("subtitlesHandler: prepared %+v", subtitles[i])
+		}
+
+		logger.LogInfo.Printf("subtitlesHandler: got %d subtitles for '%s'", len(subtitles), imdbId)
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		jsonResponse, _ := json.Marshal(map[string]any{
+			"subtitles": subtitles,
+		})
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonResponse)
 	}
-
-	logger.LogInfo.Printf("subtitlesHandler: got %d subtitles for '%s'", len(subtitles), imdbId)
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	jsonResponse, _ := json.Marshal(map[string]any{
-		"subtitles": subtitles,
-	})
-	w.WriteHeader(http.StatusOK)
-	w.Write(jsonResponse)
 }
 
 // serveSubtitleHandler handles requests for downloading specific subtitles from Titlovi.com.
-func serveSubtitleHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
-	params := mux.Vars(r)
-	path := r.URL.Path
+func serveSubtitleHandler(client *titlovi.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params := mux.Vars(r)
+		path := r.URL.Path
 
-	mediaType, ok := params["type"]
-	if !ok {
-		logger.LogError.Printf("serveSubtitleHandler: failed to get 'type' from path, path was %s", path)
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		mediaType, ok := params["type"]
+		if !ok {
+			logger.LogError.Printf("serveSubtitleHandler: failed to get 'type' from path, path was %s", path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		mediaId, ok := params["mediaid"]
+		if !ok {
+			logger.LogError.Printf("serveSubtitleHandler: failed to get 'mediaid' from path, path was %s", path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// We download the subtitle as a blob from Titlovi.com
+		data, err := client.Download(mediaType, mediaId)
+		if err != nil {
+			logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %s: %s", err, path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Titlovi.com responds with subtitles that are compressed in ZIP files.
+		// We need to open this ZIP file and extract the first found subtitle as a byte blob.
+		subData, err := utils.ExtractSubtitleFromZIP(data)
+		if err != nil {
+			logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %s: %s", err, path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Then, to make sure Stremio has no issues, we take the subtitle and convert it to VTT.
+		// The conversion also ensures UTF-8(?)
+		convertedSubData, err := utils.ConvertSubtitleToVTT(subData)
+		if err != nil {
+			logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		logger.LogInfo.Printf("serveSubtitleHandler: serving %s", r.URL.Path)
+		http.ServeContent(w, r, "file.vtt", time.Now().UTC(), bytes.NewReader(convertedSubData.Bytes()))
 	}
-
-	mediaId, ok := params["mediaid"]
-	if !ok {
-		logger.LogError.Printf("serveSubtitleHandler: failed to get 'mediaid' from path, path was %s", path)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	// We download the subtitle as a blob from Titlovi.com
-	data, err := client.Download(mediaType, mediaId)
-	if err != nil {
-		logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %s: %s", err, path)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	// Titlovi.com responds with subtitles that are compressed in ZIP files.
-	// We need to open this ZIP file and extract the first found subtitle as a byte blob.
-	subData, err := utils.ExtractSubtitleFromZIP(data)
-	if err != nil {
-		logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %s: %s", err, path)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	// Then, to make sure Stremio has no issues, we take the subtitle and convert it to VTT.
-	// The conversion also ensures UTF-8(?)
-	convertedSubData, err := utils.ConvertSubtitleToVTT(subData)
-	if err != nil {
-		logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	logger.LogInfo.Printf("serveSubtitleHandler: serving %s", r.URL.Path)
-	http.ServeContent(w, r, "file.vtt", time.Now().UTC(), bytes.NewReader(convertedSubData.Bytes()))
 }
 
 // configureHandler handles requests for addon configuration and redirects to Stremio when done.
-func configureHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusNotAcceptable)
-		return
-	}
-
-	if r.Method == http.MethodGet {
-		if err := config.ConfigTemplate.Execute(w, nil); err != nil {
-			logger.LogError.Printf("configureHandler: failed to execute template: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
+func configureHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
 		}
-		return
-	}
 
-	creds := web.UserConfig{
-		Username: r.FormValue("username"),
-		Password: r.FormValue("password"),
-	}
-
-	if !creds.Validate() {
-		if err := config.ConfigTemplate.Execute(w, creds); err != nil {
-			logger.LogError.Printf("configureHandler: failed to execute template: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
+		if r.Method == http.MethodGet {
+			if err := config.ConfigTemplate.Execute(w, nil); err != nil {
+				logger.LogError.Printf("configureHandler: failed to execute template: %s", err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			return
 		}
-		return
+
+		creds := web.UserConfig{
+			Username: r.FormValue("username"),
+			Password: r.FormValue("password"),
+		}
+
+		if !creds.Validate() {
+			if err := config.ConfigTemplate.Execute(w, creds); err != nil {
+				logger.LogError.Printf("configureHandler: failed to execute template: %s", err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			return
+		}
+
+		enc, err := utils.EncodeUserConfig(creds)
+		if err != nil {
+			logger.LogError.Printf("configureHandler: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		redirectUrl := fmt.Sprintf("stremio://%s/%s/manifest.json", r.Host, enc)
+		logger.LogInfo.Printf("configureHandler: redirecting to %s", redirectUrl)
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		http.Redirect(w, r, redirectUrl, http.StatusPermanentRedirect)
 	}
-
-	enc, err := utils.EncodeUserConfig(creds)
-	if err != nil {
-		logger.LogError.Printf("configureHandler: %s", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	redirectUrl := fmt.Sprintf("stremio://%s/%s/manifest.json", r.Host, enc)
-	logger.LogInfo.Printf("configureHandler: redirecting to %s", redirectUrl)
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	http.Redirect(w, r, redirectUrl, http.StatusPermanentRedirect)
 }
