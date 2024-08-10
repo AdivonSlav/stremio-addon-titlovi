@@ -2,13 +2,13 @@ package web
 
 import "strings"
 
-type Credentials struct {
+type UserConfig struct {
 	Username string
 	Password string
 	Errors   map[string]string
 }
 
-func (c *Credentials) Validate() bool {
+func (c *UserConfig) Validate() bool {
 	c.Errors = make(map[string]string)
 
 	if strings.TrimSpace(c.Username) == "" {

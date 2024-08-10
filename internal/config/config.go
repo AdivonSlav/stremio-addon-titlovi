@@ -22,6 +22,7 @@ var Manifest = stremio.Manifest{
 	Types:       []string{"movie", "series"},
 	Resources:   []string{"subtitles"},
 	IdPrefixes:  []string{"tt"},
+	Catalogs:    []stremio.CatalogItem{},
 	BehaviourHints: stremio.BehaviourHints{
 		Configurable:          true,
 		ConfigurationRequired: true,

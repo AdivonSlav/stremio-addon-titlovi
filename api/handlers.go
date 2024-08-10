@@ -26,11 +26,12 @@ func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
 
 	cachedRouter := mux.NewRouter()
 	cachedRouter.HandleFunc("/", homeHandler)
-	cachedRouter.HandleFunc("/{creds}/manifest.json", manifestHandler)
+	cachedRouter.HandleFunc("/manifest.json", manifestHandler)
+	cachedRouter.HandleFunc("/{userConfig}/manifest.json", manifestHandler)
 	cachedRouter.HandleFunc("/serve-subtitle/{type}/{mediaid}", func(w http.ResponseWriter, r *http.Request) {
 		serveSubtitleHandler(w, r, client)
 	})
-	cachedRouter.HandleFunc("/{creds}/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
+	cachedRouter.HandleFunc("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
 		subtitlesHandler(w, r, client)
 	})
 
@@ -40,10 +41,12 @@ func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
 	// We don't want caching for the /configure route so we just make a new router here.
 	uncachedRouter := mux.NewRouter()
 	uncachedRouter.HandleFunc("/configure", configureHandler)
+	uncachedRouter.HandleFunc("/{userConfig}/configure", configureHandler)
 
 	uncachedRouter.Use(WithLogging)
 
 	r.PathPrefix("/configure").Handler(uncachedRouter)
+	r.PathPrefix("/{userConfig}/configure").Handler(uncachedRouter)
 	r.PathPrefix("/").Handler(cachedRouter)
 
 	return r
@@ -64,7 +67,7 @@ func Serve(r *http.Handler) error {
 		"Origin",
 	})
 	originsOk := handlers.AllowedOrigins([]string{"*"})
-	methodsOk := handlers.AllowedMethods([]string{"GET"})
+	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD"})
 
 	// Listen
 	logger.LogInfo.Printf("Serve: listening on port %s...\n", config.Port)
@@ -94,7 +97,7 @@ func manifestHandler(w http.ResponseWriter, r *http.Request) {
 
 	manifest := config.Manifest
 
-	if _, ok := params["creds"]; !ok {
+	if _, ok := params["userConfig"]; !ok {
 		manifest.BehaviourHints.ConfigurationRequired = true
 	} else {
 		manifest.BehaviourHints.ConfigurationRequired = false
@@ -124,7 +127,7 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 		return
 	}
 
-	creds, err := utils.DecodeCreds(credsEnc)
+	creds, err := utils.DecodeUserConfig(credsEnc)
 	if err != nil {
 		logger.LogError.Printf("subtitlesHandler: invalid creds: %s", err)
 		w.WriteHeader(http.StatusUnauthorized)
@@ -239,7 +242,7 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creds := web.Credentials{
+	creds := web.UserConfig{
 		Username: r.FormValue("username"),
 		Password: r.FormValue("password"),
 	}
@@ -252,8 +255,16 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectUrl := fmt.Sprintf("%s/manifest.json", config.ConfigureRedirectAddress)
+	enc, err := utils.EncodeUserConfig(creds)
+	if err != nil {
+		logger.LogError.Printf("configureHandler: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	redirectUrl := fmt.Sprintf("stremio://%s/%s/manifest.json", r.Host, enc)
 	logger.LogInfo.Printf("configureHandler: redirecting to %s", redirectUrl)
 
-	http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	http.Redirect(w, r, redirectUrl, http.StatusPermanentRedirect)
 }

@@ -1,5 +1,10 @@
 package stremio
 
+type UserConfig struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 type CatalogItem struct {
 	Type string `json:"type"`
 	Id   string `json:"id"`
@@ -23,7 +28,9 @@ type Manifest struct {
 	Name           string         `json:"name"`
 	Description    string         `json:"description"`
 	Types          []string       `json:"types"`
-	Resources      []string       `json:"resources"`
-	IdPrefixes     []string       `json:"idPrefixes"`
-	BehaviourHints BehaviourHints `json:"behaviourHints"`
+	Resources      []string       `json:"resources,omitempty"`
+	Catalogs       []CatalogItem  `json:"catalogs"`
+	IdPrefixes     []string       `json:"idPrefixes,omitempty"`
+	Logo           string         `json:"logo,omitempty"`
+	BehaviourHints BehaviourHints `json:"behaviourHints,omitempty"`
 }

@@ -4,8 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/base64"
-	"errors"
+	"encoding/json"
 	"fmt"
+	"go-titlovi/internal/stremio"
 	"go-titlovi/web"
 	"io"
 	"strings"
@@ -13,27 +14,35 @@ import (
 	"github.com/asticode/go-astisub"
 )
 
-// EncodeCreds encodes credentials into a concatenated base64 string.
-func EncodeCreds(c web.Credentials) string {
-	creds := fmt.Sprintf("%s:%s", c.Username, c.Password)
-	return base64.RawURLEncoding.EncodeToString([]byte(creds))
+// EncodeCreds encodes web.UserConfig received from the configuration page to a base64 JSON representation of a stremio.UserConfig.
+func EncodeUserConfig(c web.UserConfig) (string, error) {
+	config := &stremio.UserConfig{
+		Username: c.Username,
+		Password: c.Password,
+	}
+
+	json, err := json.Marshal(config)
+	if err != nil {
+		return "", fmt.Errorf("EncodeUserConfig: could not marshal user config: %w", err)
+	}
+
+	return base64.RawURLEncoding.EncodeToString([]byte(json)), nil
 }
 
-func DecodeCreds(c string) (*web.Credentials, error) {
+// DecodeUserConfig decodes a base64 JSON object into a stremio.UserConfig
+func DecodeUserConfig(c string) (*stremio.UserConfig, error) {
 	data, err := base64.RawURLEncoding.DecodeString(c)
 	if err != nil {
-		return nil, fmt.Errorf("DecodeCreds: %w", err)
+		return nil, fmt.Errorf("DecodeUserConfig: failed to decode user config: %w", err)
 	}
 
-	split := strings.Split(string(data), ":")
-	if len(split) != 2 {
-		return nil, errors.New("DecodeCreds: the decoded credentials were not formatted correctly")
+	var userConfig = &stremio.UserConfig{}
+	err = json.Unmarshal(data, userConfig)
+	if err != nil {
+		return nil, fmt.Errorf("DecodeUserConfig: failed to unmarshal user config: %w", err)
 	}
 
-	return &web.Credentials{
-		Username: split[0],
-		Password: split[1],
-	}, nil
+	return userConfig, nil
 }
 
 // ExtractSubtitleFromZIP extracts the first found subtitle found from ZIP file.
