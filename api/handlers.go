@@ -24,13 +24,19 @@ import (
 func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
 	r := mux.NewRouter()
 
-	r.Handle("/", http.HandlerFunc(homeHandler()))
+	r.Handle("/", WithCaching(http.HandlerFunc(homeHandler()), cache))
 
-	r.Handle("/manifest.json", http.HandlerFunc(manifestHandler()))
-	r.Handle("/{userConfig}/manifest.json", WithAuth(http.HandlerFunc(manifestHandler())))
+	r.Handle("/manifest.json", WithCaching(http.HandlerFunc(manifestHandler()), cache))
+	r.Handle("/{userConfig}/manifest.json", WithCaching(
+		WithAuth(http.HandlerFunc(manifestHandler())),
+		cache,
+	))
 
-	r.Handle("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", WithAuth(http.HandlerFunc(subtitlesHandler(client))))
-	r.Handle("/serve-subtitle/{type}/{mediaid}", http.HandlerFunc(serveSubtitleHandler(client)))
+	r.Handle("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", WithCaching(
+		WithAuth(http.HandlerFunc(subtitlesHandler(client))),
+		cache,
+	))
+	r.Handle("/serve-subtitle/{type}/{mediaid}", WithCaching(http.HandlerFunc(serveSubtitleHandler(client)), cache))
 
 	r.Handle("/configure", http.HandlerFunc(configureHandler()))
 	r.Handle("/{userConfig}/configure", WithAuth(http.HandlerFunc(configureHandler())))
