@@ -2,13 +2,14 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"go-titlovi/internal/config"
 	"go-titlovi/internal/logger"
 	"go-titlovi/internal/utils"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
-	cache "github.com/victorspringer/http-cache"
 )
 
 type contextKey string
@@ -53,8 +54,18 @@ func WithLogging(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 
-		logger.LogInfo.Printf("Request: method: %s | status: %d | duration: %s | url: %s",
-			r.Method, lw.responseData.status, duration, r.URL.Path)
+		cacheStatus := w.Header().Get(config.CacheHeader)
+		var msg string
+
+		if cacheStatus != "" {
+			msg = fmt.Sprintf("Request: method: %s | status: %d | cache: %s | duration: %s | url: %s",
+				r.Method, lw.responseData.status, cacheStatus, duration, r.URL.Path)
+		} else {
+			msg = fmt.Sprintf("Request: method: %s | status: %d | duration: %s | url: %s",
+				r.Method, lw.responseData.status, duration, r.URL.Path)
+		}
+
+		logger.LogInfo.Print(msg)
 	}
 
 	return http.HandlerFunc(loggingFn)
@@ -84,8 +95,4 @@ func WithAuth(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), UserConfigContextKey, userConfig)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-func WithCaching(next http.Handler, cache *cache.Client) http.Handler {
-	return cache.Middleware(next)
 }

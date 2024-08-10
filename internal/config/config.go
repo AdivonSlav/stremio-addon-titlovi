@@ -8,8 +8,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/victorspringer/http-cache/adapter/memory"
 )
 
 // This is the manifest of the addon that will be shown to Stremio
@@ -30,12 +28,9 @@ var Manifest = stremio.Manifest{
 }
 
 var (
-	Development bool = false
-
-	ServerAddress            string = ""
-	ConfigureRedirectAddress string = ""
-
-	Port string = ""
+	Development   bool   = false
+	ServerAddress string = ""
+	Port          string = ""
 
 	TitloviApi      string = "https://kodi.titlovi.com/api/subtitles" // Titlovi.com API where we can search for subtitles.
 	TitloviDownload string = "https://titlovi.com/download"           // URL where subtitles can be downloaded from Titlovi.com.
@@ -56,10 +51,14 @@ var (
 )
 
 const (
-	MemoryCacheTTL          time.Duration    = 10 * time.Minute // How long to cache a single response.
-	MemoryCacheAlgorithm    memory.Algorithm = memory.LRU       // Caching algorithm to use.
-	MemoryCacheMaxResponses int              = 10000000         // Max number of responses to cache.
-	MemoryCacheRefreshKey   string           = "opn"            // If this key is provided, cache is circumvented.
+	CacheTTL         time.Duration = 60 * time.Minute // How long does a value stay in the cache before being evicted.
+	CacheNumCounters int64         = 1e7              // How many counters will the cache instantiate. See https://pkg.go.dev/github.com/dgraph-io/ristretto#readme-Config
+	CacheMaxCost     int64         = 1 << 28          // Max size of the cache in bytes. Roughly 256MB. See https://pkg.go.dev/github.com/dgraph-io/ristretto#readme-Config
+	CacheBufferItems int64         = 64               // Max size of the get buffer for the cache. See https://pkg.go.dev/github.com/dgraph-io/ristretto#readme-Config
+
+	CacheHeader string = "Cache-Status" // Header to set to indicate cache status.
+	CacheHit    string = "HIT"          // Set if the cache was hit.
+	CacheMiss   string = "MISS"         // Set if not hit.
 
 	TitloviClientRetryAttempts uint          = 3                      // How many times to retry a failed request to Titlovi.com.
 	TitloviClientRetryDelay    time.Duration = 500 * time.Millisecond // The delay in-between retries for requests to Titlovi.com.
@@ -87,10 +86,5 @@ func InitConfig() {
 	ServerAddress = os.Getenv("SERVER_ADDRESS")
 	if ServerAddress == "" {
 		ServerAddress = fmt.Sprintf("http://127.0.0.1:%s", Port)
-	}
-
-	ConfigureRedirectAddress = os.Getenv("REDIRECT_ADDRESS")
-	if ConfigureRedirectAddress == "" {
-		ConfigureRedirectAddress = fmt.Sprintf("stremio://127.0.0.1:%s", Port)
 	}
 }

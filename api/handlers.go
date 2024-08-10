@@ -14,14 +14,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dgraph-io/ristretto"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	cache "github.com/victorspringer/http-cache"
 )
 
 // BuildRouter builds a new router with handler functions to handle all necessary routes and
 // also appends middleware.
-func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
+func BuildRouter(client *titlovi.Client, cache *ristretto.Cache) http.Handler {
 	r := mux.NewRouter()
 
 	r.Handle("/", http.HandlerFunc(homeHandler()))
@@ -29,8 +29,8 @@ func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
 	r.Handle("/manifest.json", http.HandlerFunc(manifestHandler()))
 	r.Handle("/{userConfig}/manifest.json", WithAuth(http.HandlerFunc(manifestHandler())))
 
-	r.Handle("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", WithAuth(http.HandlerFunc(subtitlesHandler(client))))
-	r.Handle("/serve-subtitle/{type}/{mediaid}", http.HandlerFunc(serveSubtitleHandler(client)))
+	r.Handle("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", WithAuth(http.HandlerFunc(subtitlesHandler(client, cache))))
+	r.Handle("/serve-subtitle/{type}/{mediaid}", http.HandlerFunc(serveSubtitleHandler(client, cache)))
 
 	r.Handle("/configure", http.HandlerFunc(configureHandler()))
 	r.Handle("/{userConfig}/configure", WithAuth(http.HandlerFunc(configureHandler())))
@@ -81,7 +81,7 @@ func homeHandler() http.HandlerFunc {
 	}
 }
 
-// manifestHandler handles requests for the Stremio manifest.
+// manifestHandler handles requests for the Stremio manifest.CacheManager
 func manifestHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		manifest := config.Manifest
@@ -107,7 +107,7 @@ func manifestHandler() http.HandlerFunc {
 }
 
 // subtitlesHandler handles requests for Titlovi.com search results.
-func subtitlesHandler(client *titlovi.Client) http.HandlerFunc {
+func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
 		path := r.URL.Path
@@ -126,46 +126,69 @@ func subtitlesHandler(client *titlovi.Client) http.HandlerFunc {
 			return
 		}
 
-		imdbId, ok := params["id"]
+		id, ok := params["id"]
 		if !ok {
 			logger.LogError.Printf("subtitlesHandler: failed to get 'id' from path, path was %s", path)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		subtitleData, err := client.Search(imdbId, config.TitloviLanguages, userConfig.Username, userConfig.Password)
-		if err != nil {
-			logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
-			w.WriteHeader(http.StatusBadRequest)
-			return
+		resp := &stremio.SubtitlesResponse{
+			Subtitles: []*stremio.SubtitleItem{},
 		}
 
-		subtitles := make([]*stremio.SubtitleItem, len(subtitleData))
+		// Serve the results from the cache if found.
+		if val, found := cache.Get(id); found {
+			w.Header().Set(config.CacheHeader, config.CacheHit)
 
-		for i, data := range subtitleData {
-			idStr := strconv.Itoa(int(data.Id))
-			servePath := fmt.Sprintf("%s/serve-subtitle/%d/%s", config.ServerAddress, data.Type, idStr)
-			subtitles[i] = &stremio.SubtitleItem{
-				Id:   idStr,
-				Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
-				Lang: fmt.Sprintf("%s|%s", data.Lang, config.SubtitleSuffix),
+			resp, ok = val.(*stremio.SubtitlesResponse)
+			if !ok {
+				logger.LogFatal.Printf("subtitlesHandler: value found in cache was of an unexpected type")
+				w.WriteHeader(http.StatusInternalServerError)
+				return
 			}
-			logger.LogInfo.Printf("subtitlesHandler: prepared %+v", subtitles[i])
+		} else {
+			w.Header().Set(config.CacheHeader, config.CacheMiss)
+
+			subtitleData, err := client.Search(id, config.TitloviLanguages, userConfig.Username, userConfig.Password)
+			if err != nil {
+				logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			// Pre-allocate according to what we got.
+			resp.Subtitles = make([]*stremio.SubtitleItem, len(subtitleData))
+
+			for i, data := range subtitleData {
+				idStr := strconv.Itoa(int(data.Id))
+				servePath := fmt.Sprintf("%s/serve-subtitle/%d/%s", config.ServerAddress, data.Type, idStr)
+				resp.Subtitles[i] = &stremio.SubtitleItem{
+					Id:   idStr,
+					Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
+					Lang: fmt.Sprintf("%s|%s", data.Lang, config.SubtitleSuffix),
+				}
+				logger.LogInfo.Printf("subtitlesHandler: prepared %+v", *resp.Subtitles[i])
+			}
+
+			logger.LogInfo.Printf("subtitlesHandler: got %d subtitles for '%s'", len(resp.Subtitles), id)
+
+			cache.SetWithTTL(id, resp, 0, config.CacheTTL)
 		}
 
-		logger.LogInfo.Printf("subtitlesHandler: got %d subtitles for '%s'", len(subtitles), imdbId)
+		jsonResponse, err := json.Marshal(resp)
+		if err != nil {
+			logger.LogError.Printf("subtitlesHandler: failed to marshal response: %s", err)
+		}
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		jsonResponse, _ := json.Marshal(map[string]any{
-			"subtitles": subtitles,
-		})
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonResponse)
 	}
 }
 
 // serveSubtitleHandler handles requests for downloading specific subtitles from Titlovi.com.
-func serveSubtitleHandler(client *titlovi.Client) http.HandlerFunc {
+func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
 		path := r.URL.Path
@@ -184,32 +207,49 @@ func serveSubtitleHandler(client *titlovi.Client) http.HandlerFunc {
 			return
 		}
 
-		// We download the subtitle as a blob from Titlovi.com
-		data, err := client.Download(mediaType, mediaId)
-		if err != nil {
-			logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %s: %s", err, path)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		var subData []byte
 
-		// Titlovi.com responds with subtitles that are compressed in ZIP files.
-		// We need to open this ZIP file and extract the first found subtitle as a byte blob.
-		subData, err := utils.ExtractSubtitleFromZIP(data)
-		if err != nil {
-			logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %s: %s", err, path)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		if val, found := cache.Get(fmt.Sprintf("%s-%s", mediaType, mediaId)); found {
+			w.Header().Set(config.CacheHeader, config.CacheHit)
 
-		convertedSubData, err := utils.ConvertSubtitleToUTF8(subData)
-		if err != nil {
-			logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+			subData, ok = val.([]byte)
+			if !ok {
+				logger.LogFatal.Printf("subtitlesHandler: value found in cache was of an unexpected type")
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		} else {
+			w.Header().Set(config.CacheHeader, config.CacheMiss)
+
+			// We download the subtitle as a blob from Titlovi.com
+			data, err := client.Download(mediaType, mediaId)
+			if err != nil {
+				logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %s: %s", err, path)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			// Titlovi.com responds with subtitles that are compressed in ZIP files.
+			// We need to open this ZIP file and extract the first found subtitle as a byte blob.
+			subData, err = utils.ExtractSubtitleFromZIP(data)
+			if err != nil {
+				logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %s: %s", err, path)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			subData, err = utils.ConvertSubtitleToUTF8(subData)
+			if err != nil {
+				logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			cache.SetWithTTL(fmt.Sprintf("%s-%s", mediaType, mediaId), subData, 0, config.CacheTTL)
 		}
 
 		logger.LogInfo.Printf("serveSubtitleHandler: serving %s", r.URL.Path)
-		http.ServeContent(w, r, "file.srt", time.Now().UTC(), bytes.NewReader(convertedSubData))
+		http.ServeContent(w, r, "file.srt", time.Now().UTC(), bytes.NewReader(subData))
 	}
 }
 

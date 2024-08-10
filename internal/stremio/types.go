@@ -17,6 +17,10 @@ type SubtitleItem struct {
 	Lang string `json:"lang"`
 }
 
+type SubtitlesResponse struct {
+	Subtitles []*SubtitleItem `json:"subtitles"`
+}
+
 type BehaviourHints struct {
 	Configurable          bool `json:"configurable"`
 	ConfigurationRequired bool `json:"configurationRequired"`

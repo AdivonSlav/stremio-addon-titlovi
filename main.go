@@ -9,8 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	cache "github.com/victorspringer/http-cache"
-	"github.com/victorspringer/http-cache/adapter/memory"
+	"github.com/dgraph-io/ristretto"
 )
 
 func main() {
@@ -19,31 +18,23 @@ func main() {
 
 	config.InitConfig()
 
-	memcached, err := memory.NewAdapter(
-		memory.AdapterWithAlgorithm(config.MemoryCacheAlgorithm),
-		memory.AdapterWithCapacity(config.MemoryCacheMaxResponses),
-	)
-	if err != nil {
-		logger.LogFatal.Fatalf("main: failed to initialize memory cache adapter: %s", err)
-	}
+	titloviClient := titlovi.NewClient(config.TitloviClientRetryAttempts, config.TitloviClientRetryDelay)
 
-	cacheClient, err := cache.NewClient(
-		cache.ClientWithAdapter(memcached),
-		cache.ClientWithTTL(config.MemoryCacheTTL),
-		cache.ClientWithRefreshKey(config.MemoryCacheRefreshKey),
-	)
+	cacheManager, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: 1e7,
+		MaxCost:     1 << 28,
+		BufferItems: 64,
+	})
 	if err != nil {
 		logger.LogFatal.Fatalf("main: failed to initialize cache: %s", err)
 	}
 
-	titloviClient := titlovi.NewClient(config.TitloviClientRetryAttempts, config.TitloviClientRetryDelay)
-
-	router := api.BuildRouter(titloviClient, cacheClient)
+	router := api.BuildRouter(titloviClient, cacheManager)
 
 	go func() {
 		err = api.Serve(&router)
 		if err != nil {
-			logger.LogFatal.Fatalf("main: fatal error when trying to serve: %s", err.Error())
+			logger.LogFatal.Fatalf("main: fatal error when trying to serve: %s", err)
 		}
 	}()
 
@@ -51,5 +42,5 @@ func main() {
 	signal.Notify(exit, syscall.SIGTERM, syscall.SIGINT)
 
 	<-exit
-	logger.LogInfo.Printf("Terminating...")
+	logger.LogInfo.Printf("main: terminating...")
 }
