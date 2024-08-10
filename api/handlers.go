@@ -84,6 +84,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	w.Write(jsonResponse)
 }
 
@@ -107,6 +108,7 @@ func manifestHandler(w http.ResponseWriter, r *http.Request) {
 	logger.LogInfo.Printf("Manifest was: %+v", manifest)
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	w.Write(jsonResponse)
 }
 
@@ -169,6 +171,7 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 	jsonResponse, _ := json.Marshal(map[string]any{
 		"subtitles": subtitles,
 	})
+	w.WriteHeader(http.StatusOK)
 	w.Write(jsonResponse)
 }
 
@@ -249,7 +252,7 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectUrl := fmt.Sprintf("%s/%s/manifest.json", config.ConfigureRedirectAddress, utils.EncodeCreds(creds))
+	redirectUrl := fmt.Sprintf("%s/manifest.json", config.ConfigureRedirectAddress)
 	logger.LogInfo.Printf("configureHandler: redirecting to %s", redirectUrl)
 
 	http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
