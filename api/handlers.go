@@ -24,33 +24,29 @@ import (
 func BuildRouter(client *titlovi.Client, cache *cache.Client) http.Handler {
 	r := mux.NewRouter()
 
-	// Route handlers
-	r.HandleFunc("/", homeHandler)
-	r.HandleFunc("/configure", configureHandler)
-	r.HandleFunc("/{creds}/manifest.json", manifestHandler)
-	r.HandleFunc("/serve-subtitle/{type}/{mediaid}", func(w http.ResponseWriter, r *http.Request) {
+	cachedRouter := mux.NewRouter()
+	cachedRouter.HandleFunc("/", homeHandler)
+	cachedRouter.HandleFunc("/{creds}/manifest.json", manifestHandler)
+	cachedRouter.HandleFunc("/serve-subtitle/{type}/{mediaid}", func(w http.ResponseWriter, r *http.Request) {
 		serveSubtitleHandler(w, r, client)
 	})
-	r.HandleFunc("/{creds}/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
+	cachedRouter.HandleFunc("/{creds}/subtitles/{type}/{id}/{extraArgs}.json", func(w http.ResponseWriter, r *http.Request) {
 		subtitlesHandler(w, r, client)
 	})
 
-	// Create a caching router that wraps the main router
-	cachedRouter := mux.NewRouter()
-	cachedRouter.PathPrefix("/").Handler(r)
+	cachedRouter.Use(WithLogging)
+	cachedRouter.Use(cache.Middleware)
 
-	// Apply caching middleware and timeout handler to the caching router
-	cachedHandler := cache.Middleware(cachedRouter)
-	timeoutHandler := http.TimeoutHandler(cachedHandler, 30*time.Second, "")
+	// We don't want caching for the /configure route so we just make a new router here.
+	uncachedRouter := mux.NewRouter()
+	uncachedRouter.HandleFunc("/configure", configureHandler)
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/configure" {
-			configureHandler(w, r)
-		} else {
-			// Apply caching and timeout middleware to other routes
-			timeoutHandler.ServeHTTP(w, r)
-		}
-	})
+	uncachedRouter.Use(WithLogging)
+
+	r.PathPrefix("/configure").Handler(uncachedRouter)
+	r.PathPrefix("/").Handler(cachedRouter)
+
+	return r
 }
 
 // Serve calls serve on a handler and listens to incoming requests.
@@ -87,8 +83,6 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		logger.LogError.Printf("homeHandler: failed to marshal json: %v", err)
 	}
 
-	logger.LogInfo.Printf("homeHandler: received request to %s", r.URL.Path)
-
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
 }
@@ -96,8 +90,6 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 // manifestHandler handles requests for the Stremio manifest.
 func manifestHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-
-	logger.LogInfo.Printf("manifestHandler: received request to %s", r.URL.Path)
 
 	manifest := config.Manifest
 
@@ -122,8 +114,6 @@ func manifestHandler(w http.ResponseWriter, r *http.Request) {
 func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
 	path := r.URL.Path
 	params := mux.Vars(r)
-
-	logger.LogInfo.Printf("subtitlesHandler: received request to %s", r.URL.Path)
 
 	credsEnc, ok := params["creds"]
 	if !ok {
@@ -186,8 +176,6 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 func serveSubtitleHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Client) {
 	params := mux.Vars(r)
 	path := r.URL.Path
-
-	logger.LogInfo.Printf("subtitlesHandler: received request to %s", path)
 
 	mediaType, ok := params["type"]
 	if !ok {
