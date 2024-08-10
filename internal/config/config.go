@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"go-titlovi/internal/logger"
 	"go-titlovi/internal/stremio"
 	"html/template"
@@ -35,8 +36,6 @@ var (
 
 	Port string = ""
 
-	TitloviUsername string = ""                                       // Username for the Titlovi.com account.
-	TitloviPassword string = ""                                       // Password for the Titlovi.com account.
 	TitloviApi      string = "https://kodi.titlovi.com/api/subtitles" // Titlovi.com API where we can search for subtitles.
 	TitloviDownload string = "https://titlovi.com/download"           // URL where subtitles can be downloaded from Titlovi.com.
 
@@ -69,6 +68,11 @@ const (
 func InitConfig() {
 	var err error
 
+	Port = os.Getenv("PORT")
+	if Port == "" {
+		logger.LogFatal.Fatalf("InitConfig: The environment variable PORT must be supplied")
+	}
+
 	isDev := os.Getenv("DEVELOPMENT")
 	if isDev == "" {
 		Development = false
@@ -81,19 +85,11 @@ func InitConfig() {
 
 	ServerAddress = os.Getenv("SERVER_ADDRESS")
 	if ServerAddress == "" {
-		ServerAddress = "http://127.0.0.1"
+		ServerAddress = fmt.Sprintf("http://127.0.0.1:%s", Port)
 	}
 
 	ConfigureRedirectAddress = os.Getenv("REDIRECT_ADDRESS")
 	if ConfigureRedirectAddress == "" {
-		ConfigureRedirectAddress = "stremio://127.0.0.1:5555"
+		ConfigureRedirectAddress = fmt.Sprintf("stremio://127.0.0.1:%s", Port)
 	}
-
-	Port = os.Getenv("PORT")
-	if Port == "" {
-		logger.LogFatal.Fatalf("InitConfig: The environment variable PORT must be supplied")
-	}
-
-	TitloviUsername = os.Getenv("TITLOVI_USERNAME")
-	TitloviPassword = os.Getenv("TITLOVI_PASSWORD")
 }

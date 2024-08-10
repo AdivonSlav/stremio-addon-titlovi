@@ -164,7 +164,7 @@ func subtitlesHandler(w http.ResponseWriter, r *http.Request, client *titlovi.Cl
 
 	for i, data := range subtitleData {
 		idStr := strconv.Itoa(int(data.Id))
-		servePath := fmt.Sprintf("%s:%s/serve-subtitle/%d/%s", config.ServerAddress, config.Port, data.Type, idStr)
+		servePath := fmt.Sprintf("%s/serve-subtitle/%d/%s", config.ServerAddress, data.Type, idStr)
 		subtitles[i] = &stremio.SubtitleItem{
 			Id:   idStr,
 			Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
