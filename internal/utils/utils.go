@@ -6,12 +6,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"go-titlovi/internal/logger"
 	"go-titlovi/internal/stremio"
 	"go-titlovi/web"
 	"io"
 	"strings"
 
-	"github.com/asticode/go-astisub"
+	"golang.org/x/net/html/charset"
+	"golang.org/x/text/encoding/charmap"
 )
 
 // EncodeCreds encodes web.UserConfig received from the configuration page to a base64 JSON representation of a stremio.UserConfig.
@@ -75,18 +77,23 @@ func ExtractSubtitleFromZIP(zipData []byte) ([]byte, error) {
 	return buffer, nil
 }
 
-// ConvertSubtitleToVTT converts a subtitle to VTT and returns it as a byte buffer.
-func ConvertSubtitleToVTT(subtitleData []byte) (*bytes.Buffer, error) {
-	subtitle, err := astisub.ReadFromSRT(bytes.NewReader(subtitleData))
+// ConvertSubtitleToUTF8 converts subtitle data to UTF-8.
+//
+// The subtitle is asssumed to be Windows 1252 encoded, but if conversion fails it will fall back to automatically determining it.
+func ConvertSubtitleToUTF8(subtitleData []byte) ([]byte, error) {
+	// All subs on Titlovi.com to my knowledge are encoded with the Windows 1252 encoding.
+	utf8, err := charmap.Windows1252.NewDecoder().Bytes(subtitleData)
 	if err != nil {
-		return nil, fmt.Errorf("ConvertSubtitleToVTT: failed to read subtitle: %w", err)
+		// If this fails, let's see if we can determine the encoding.
+		e, name, _ := charset.DetermineEncoding(subtitleData, "")
+		logger.LogInfo.Printf("ConvertSubtitleToUTF8: fallback to determing encoding, determined %s", name)
+
+		utf8, err = e.NewDecoder().Bytes(subtitleData)
+		if err != nil {
+			return nil, fmt.Errorf("ConvertSubtitleToUTF8: %w", err)
+
+		}
 	}
 
-	var buf = &bytes.Buffer{}
-	err = subtitle.WriteToWebVTT(buf)
-	if err != nil {
-		return nil, fmt.Errorf("ConvertSubtitleToVTT: failed to write subtitle as VTT: %w", err)
-	}
-
-	return buf, nil
+	return utf8, nil
 }

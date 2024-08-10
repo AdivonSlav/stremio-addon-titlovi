@@ -207,9 +207,7 @@ func serveSubtitleHandler(client *titlovi.Client) http.HandlerFunc {
 			return
 		}
 
-		// Then, to make sure Stremio has no issues, we take the subtitle and convert it to VTT.
-		// The conversion also ensures UTF-8(?)
-		convertedSubData, err := utils.ConvertSubtitleToVTT(subData)
+		convertedSubData, err := utils.ConvertSubtitleToUTF8(subData)
 		if err != nil {
 			logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -217,7 +215,7 @@ func serveSubtitleHandler(client *titlovi.Client) http.HandlerFunc {
 		}
 
 		logger.LogInfo.Printf("serveSubtitleHandler: serving %s", r.URL.Path)
-		http.ServeContent(w, r, "file.vtt", time.Now().UTC(), bytes.NewReader(convertedSubData.Bytes()))
+		http.ServeContent(w, r, "file.srt", time.Now().UTC(), bytes.NewReader(convertedSubData))
 	}
 }
 
