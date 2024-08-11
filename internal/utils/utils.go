@@ -12,7 +12,9 @@ import (
 	"io"
 	"strings"
 
-	"golang.org/x/net/html/charset"
+	"github.com/saintfish/chardet"
+	"golang.org/x/text/encoding/ianaindex"
+	"golang.org/x/text/transform"
 )
 
 // EncodeCreds encodes web.UserConfig received from the configuration page to a base64 JSON representation of a stremio.UserConfig.
@@ -76,15 +78,26 @@ func ExtractSubtitleFromZIP(zipData []byte) ([]byte, error) {
 	return buffer, nil
 }
 
-// ConvertSubtitleToUTF8 converts subtitle data to UTF-8.
-func ConvertSubtitleToUTF8(subtitleData []byte) ([]byte, error) {
-	e, name, _ := charset.DetermineEncoding(subtitleData, "")
-	logger.LogInfo.Printf("ConvertSubtitleToUTF8: fallback to determing encoding, determined %s", name)
-
-	utf8, err := e.NewDecoder().Bytes(subtitleData)
+// ConvertSubtitleToUTF8 takes subtitle data, determines the charset and converts it to UTF-8.
+func ConvertSubtitleToUTF8(subtitleData []byte) (string, error) {
+	detector := chardet.NewTextDetector()
+	result, err := detector.DetectBest(subtitleData)
 	if err != nil {
-		return nil, fmt.Errorf("ConvertSubtitleToUTF8: %w", err)
+		return "", fmt.Errorf("ConvertSubtitleToUTF8: can't detect subtitle encoding: %s", err)
 	}
 
-	return utf8, nil
+	logger.LogInfo.Printf("Detected %s with confidence of %d", result.Charset, result.Confidence)
+
+	e, err := ianaindex.IANA.Encoding(result.Charset)
+	if err != nil {
+		return "", fmt.Errorf("ConvertSubtitleToUTF8: failed to retrieve charset from IANA name: %s", err)
+	}
+
+	r := transform.NewReader(bytes.NewBuffer(subtitleData), e.NewDecoder())
+	utf8, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("ConvertSubtitleToUTF8: failed to read buffer: %s", err)
+	}
+
+	return string(utf8), err
 }
