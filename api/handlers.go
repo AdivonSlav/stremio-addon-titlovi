@@ -40,10 +40,9 @@ func BuildRouter(client *titlovi.Client, cache *ristretto.Cache) http.Handler {
 	return r
 }
 
-// Serve calls serve on a handler and listens to incoming requests.
-//
-// CORS is also configured to work with Stremio.
-func Serve(r *http.Handler) error {
+// BuildServer builds an http.Server with settings and CORS pre-configured.
+func BuildServer(r *http.Handler) *http.Server {
+
 	// CORS configuration
 	headersOk := handlers.AllowedHeaders([]string{
 		"Content-Type",
@@ -57,14 +56,12 @@ func Serve(r *http.Handler) error {
 	originsOk := handlers.AllowedOrigins([]string{"*"})
 	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD"})
 
-	// Listen
-	logger.LogInfo.Printf("Serve: listening on port %s...\n", config.Port)
-	err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", config.Port), handlers.CORS(originsOk, headersOk, methodsOk)(*r))
-	if err != nil {
-		return fmt.Errorf("Serve: %w", err)
+	server := &http.Server{
+		Addr:    fmt.Sprintf("0.0.0.0:%s", config.Port),
+		Handler: handlers.CORS(originsOk, headersOk, methodsOk)(*r),
 	}
 
-	return nil
+	return server
 }
 
 // homeHandler handles requests to the root and provides a dummy response.

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"go-titlovi/api"
 	"go-titlovi/internal/config"
 	"go-titlovi/internal/logger"
 	"go-titlovi/internal/titlovi"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/dgraph-io/ristretto"
 )
@@ -30,11 +34,12 @@ func main() {
 	}
 
 	router := api.BuildRouter(titloviClient, cacheManager)
+	server := api.BuildServer(&router)
 
 	go func() {
-		err = api.Serve(&router)
-		if err != nil {
-			logger.LogFatal.Fatalf("main: fatal error when trying to serve: %s", err)
+		logger.LogInfo.Printf("main: listening on port %s", config.Port)
+		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			logger.LogFatal.Fatalf("main: error when trying to serve: %s", err)
 		}
 	}()
 
@@ -43,4 +48,12 @@ func main() {
 
 	<-exit
 	logger.LogInfo.Printf("main: terminating...")
+
+	ctx, release := context.WithTimeout(context.Background(), 10*time.Second)
+	defer release()
+
+	if err := server.Shutdown(ctx); err != nil {
+		logger.LogFatal.Fatalf("main: error when trying to shutdown server: %s", err)
+	}
+	logger.LogInfo.Printf("main: terminated")
 }
