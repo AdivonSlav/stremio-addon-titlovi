@@ -146,8 +146,9 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 			}
 		} else {
 			w.Header().Set(config.CacheHeader, config.CacheMiss)
+			imdbId, season, episode := stremio.ParseVideoId(id)
 
-			subtitleData, err := client.Search(id, config.TitloviLanguages, userConfig.Username, userConfig.Password)
+			subtitleData, err := client.Search(imdbId, season, episode, config.TitloviLanguages, userConfig.Username, userConfig.Password)
 			if err != nil {
 				logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
 				w.WriteHeader(http.StatusBadRequest)

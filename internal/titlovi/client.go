@@ -66,13 +66,20 @@ func (c *Client) Login(username, password string) error {
 	return err
 }
 
-// Search performs a search on the Titlovi.com API and returns a slice of titlovi.SubtitleData if succesful
-func (c *Client) Search(imdbId string, languages []string, username, password string) ([]SubtitleData, error) {
+// Search performs a search on the Titlovi.com API and returns a slice of titlovi.SubtitleData if successful.
+func (c *Client) Search(imdbId string, season, episode string, languages []string, username, password string) ([]SubtitleData, error) {
 	params := url.Values{}
 	params.Add("token", c.loginData.Token)
 	params.Add("userid", strconv.Itoa(int(c.loginData.UserId)))
 	params.Add("query", imdbId)
 	params.Add("lang", strings.Join(languages, "|"))
+
+	if season != "" {
+		params.Add("season", season)
+	}
+	if episode != "" {
+		params.Add("episode", episode)
+	}
 
 	url := fmt.Sprintf("%s/search?%s", config.TitloviApi, params.Encode())
 	var body []byte
