@@ -236,7 +236,7 @@ func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.H
 				return
 			}
 
-			utf8, err := utils.ConvertSubtitleToUTF8Improved(subData)
+			utf8, err := utils.ConvertSubtitleToUTF8(subData)
 			if err != nil {
 				logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
 				w.WriteHeader(http.StatusInternalServerError)
