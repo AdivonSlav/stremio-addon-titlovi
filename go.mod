@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d
 	golang.org/x/text v0.4.0
+	golang.org/x/time v0.6.0
 )
 
 require (

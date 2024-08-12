@@ -37,6 +37,7 @@ func BuildRouter(client *titlovi.Client, cache *ristretto.Cache) http.Handler {
 	r.Handle("/{userConfig}/configure", middleware.WithAuth(http.HandlerFunc(configureHandler())))
 
 	r.Use(middleware.WithLogging)
+	r.Use(middleware.WithRateLimit)
 
 	return r
 }

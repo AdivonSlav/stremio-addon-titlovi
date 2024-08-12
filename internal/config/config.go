@@ -62,6 +62,10 @@ const (
 
 	TitloviClientRetryAttempts uint          = 3                      // How many times to retry a failed request to Titlovi.com.
 	TitloviClientRetryDelay    time.Duration = 500 * time.Millisecond // The delay in-between retries for requests to Titlovi.com.
+
+	RateLimitingRate        int           = 2               // How many requests to allow within a second.
+	RateLimitingBurst       int           = 3               // How many burst requests do we allow.
+	RateLimitingCleanupTime time.Duration = 3 * time.Minute // The duration to hold a single rate limiter for a client for. After this, it is deleted.
 )
 
 // InitConfig initializes some global variables from the environment.
