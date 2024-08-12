@@ -10,12 +10,38 @@ import (
 	"go-titlovi/internal/stremio"
 	"go-titlovi/web"
 	"io"
+	"net"
+	"net/http"
 	"strings"
 
 	"github.com/saintfish/chardet"
 	"golang.org/x/text/encoding/ianaindex"
 	"golang.org/x/text/transform"
 )
+
+// GetIP attempts to retrieve the IP through multiple methods from an http.Request.
+func GetIP(r *http.Request) (string, error) {
+	var err error
+
+	ip := r.Header.Get("X-Forwarded-For")
+
+	if ip == "" {
+		ip = r.Header.Get("X-Real-IP")
+	}
+
+	if ip == "" {
+		ip, _, err = net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return "", fmt.Errorf("GetIP: %w", err)
+		}
+	}
+
+	if ip == "" {
+		return "", fmt.Errorf("GetIP: no IP found")
+	}
+
+	return ip, nil
+}
 
 // EncodeCreds encodes web.UserConfig received from the configuration page to a base64 JSON representation of a stremio.UserConfig.
 func EncodeUserConfig(c web.UserConfig) (string, error) {

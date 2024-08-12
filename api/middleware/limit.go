@@ -3,7 +3,7 @@ package middleware
 import (
 	"go-titlovi/internal/config"
 	"go-titlovi/internal/logger"
-	"net"
+	"go-titlovi/internal/utils"
 	"net/http"
 	"sync"
 	"time"
@@ -65,7 +65,7 @@ func WithRateLimit(next http.Handler) http.Handler {
 	go cleanupLimiters()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		ip, err := utils.GetIP(r)
 		if err != nil {
 			logger.LogError.Printf("WithRateLimit: could not retrieve IP: %s", err)
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
