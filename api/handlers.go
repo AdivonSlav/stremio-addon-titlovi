@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go-titlovi/api/middleware"
 	"go-titlovi/internal/config"
 	"go-titlovi/internal/logger"
 	"go-titlovi/internal/stremio"
@@ -27,15 +28,15 @@ func BuildRouter(client *titlovi.Client, cache *ristretto.Cache) http.Handler {
 	r.Handle("/", http.HandlerFunc(homeHandler()))
 
 	r.Handle("/manifest.json", http.HandlerFunc(manifestHandler()))
-	r.Handle("/{userConfig}/manifest.json", WithAuth(http.HandlerFunc(manifestHandler())))
+	r.Handle("/{userConfig}/manifest.json", middleware.WithAuth(http.HandlerFunc(manifestHandler())))
 
-	r.Handle("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", WithAuth(http.HandlerFunc(subtitlesHandler(client, cache))))
+	r.Handle("/{userConfig}/subtitles/{type}/{id}/{extraArgs}.json", middleware.WithAuth(http.HandlerFunc(subtitlesHandler(client, cache))))
 	r.Handle("/serve-subtitle/{type}/{mediaid}", http.HandlerFunc(serveSubtitleHandler(client, cache)))
 
 	r.Handle("/configure", http.HandlerFunc(configureHandler()))
-	r.Handle("/{userConfig}/configure", WithAuth(http.HandlerFunc(configureHandler())))
+	r.Handle("/{userConfig}/configure", middleware.WithAuth(http.HandlerFunc(configureHandler())))
 
-	r.Use(WithLogging)
+	r.Use(middleware.WithLogging)
 
 	return r
 }
@@ -83,7 +84,7 @@ func manifestHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		manifest := config.Manifest
 
-		userConfig := r.Context().Value(UserConfigContextKey).(*stremio.UserConfig)
+		userConfig := r.Context().Value(middleware.UserConfigContextKey).(*stremio.UserConfig)
 		if userConfig != nil {
 			manifest.BehaviourHints.ConfigurationRequired = false
 		} else {
@@ -109,7 +110,7 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 		params := mux.Vars(r)
 		path := r.URL.Path
 
-		userConfig := r.Context().Value(UserConfigContextKey).(*stremio.UserConfig)
+		userConfig := r.Context().Value(middleware.UserConfigContextKey).(*stremio.UserConfig)
 		if userConfig == nil {
 			logger.LogError.Printf("subtitlesHandler: user config was nil")
 			w.WriteHeader(http.StatusInternalServerError)
