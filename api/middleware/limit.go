@@ -49,6 +49,7 @@ func cleanupLimiters() {
 	for {
 		time.Sleep(time.Minute)
 
+		// We could technically introduce read locks here for a more granular approach.
 		mtx.Lock()
 		for ip, c := range clients {
 			if time.Since(c.lastSeen) > config.RateLimitingCleanupTime {
