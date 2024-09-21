@@ -166,8 +166,10 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 				langCode := stremio.GetLangCode(data.Lang)
 				resp.Subtitles[i] = &stremio.SubtitleItem{
 					Id:   idStr,
-					Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
-					Lang: fmt.Sprintf("%s|%s", langCode, config.SubtitleSuffix),
+					Url:  servePath,
+					Lang: langCode,
+					// Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath), // For testing
+					// Lang: fmt.Sprintf("%s|%s", langCode, config.SubtitleSuffix), // For testing
 				}
 				logger.LogInfo.Printf("subtitlesHandler: prepared %+v", *resp.Subtitles[i])
 			}
