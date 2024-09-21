@@ -76,7 +76,7 @@ func homeHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonResponse)
+		_, _ = w.Write(jsonResponse)
 	}
 }
 
@@ -101,7 +101,7 @@ func manifestHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonResponse)
+		_, _ = w.Write(jsonResponse)
 	}
 }
 
@@ -163,10 +163,11 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 			for i, data := range subtitleData {
 				idStr := strconv.Itoa(int(data.Id))
 				servePath := fmt.Sprintf("%s/serve-subtitle/%d/%s", config.ServerAddress, data.Type, idStr)
+				langCode := stremio.GetLangCode(data.Lang)
 				resp.Subtitles[i] = &stremio.SubtitleItem{
 					Id:   idStr,
 					Url:  fmt.Sprintf("http://127.0.0.1:11470/subtitles.vtt?from=%s", servePath),
-					Lang: fmt.Sprintf("%s|%s", data.Lang, config.SubtitleSuffix),
+					Lang: fmt.Sprintf("%s|%s", langCode, config.SubtitleSuffix),
 				}
 				logger.LogInfo.Printf("subtitlesHandler: prepared %+v", *resp.Subtitles[i])
 			}
@@ -183,7 +184,7 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write(jsonResponse)
+		_, _ = w.Write(jsonResponse)
 	}
 }
 
@@ -292,7 +293,6 @@ func configureHandler() http.HandlerFunc {
 		}
 
 		redirectUrl := fmt.Sprintf("stremio://%s/%s/manifest.json", r.Host, enc)
-		logger.LogInfo.Printf("configureHandler: redirecting to %s", redirectUrl)
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		http.Redirect(w, r, redirectUrl, http.StatusPermanentRedirect)
