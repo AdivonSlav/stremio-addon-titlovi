@@ -45,7 +45,7 @@ var (
 		"Slovenski",
 	}
 
-	SubtitleSuffix string = "Titlovi.com" // This will be appended as a suffix to subtitle languages when returned to Stremio.
+	SubtitleSuffix string = "" // This will be appended as a suffix to subtitle languages when returned to Stremio.
 
 	ConfigTemplate *template.Template = template.Must(template.ParseFiles("web/templates/configuration-form.html"))
 )
