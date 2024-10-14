@@ -19,6 +19,9 @@ WORKDIR /app
 # Copy the binary from the build stage
 COPY --from=build /app/build/addon .
 
+# Copy the HTML web templates.
+COPY --from=build /app/web . 
+
 # Expose the default port.
 EXPOSE 5555
 
