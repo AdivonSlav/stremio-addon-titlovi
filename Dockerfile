@@ -20,7 +20,7 @@ WORKDIR /app
 COPY --from=build /app/build/addon .
 
 # Copy the HTML web templates.
-COPY --from=build /app/web . 
+COPY --from=build /app/web ./web 
 
 # Expose the default port.
 EXPOSE 5555
