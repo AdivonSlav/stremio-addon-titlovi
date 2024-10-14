@@ -1,9 +1,9 @@
 # Build stage
-FROM golang:1.23-alpine
+FROM golang:1.23-alpine AS build
 
 WORKDIR /app
 
-RUN apk add --no-cache make
+RUN apk add --no-cache make git
 
 # Copy over everything.
 COPY . .
