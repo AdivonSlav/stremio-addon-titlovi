@@ -16,9 +16,14 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
+var (
+	Build = ""
+)
+
 func main() {
 	logger.InitLoggers()
 	logger.LogInfo.Printf("main: initializing...")
+	logger.LogInfo.Printf("main: build %s", Build)
 
 	config.InitConfig()
 
