@@ -5,6 +5,8 @@ import (
 	"go-titlovi/internal/config"
 	"go-titlovi/internal/logger"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -47,16 +49,45 @@ func WithLogging(next http.Handler) http.Handler {
 		cacheStatus := w.Header().Get(config.CacheHeader)
 		var msg string
 
+		redactedURL, err := redactURL(r.URL.Path)
+		if err != nil {
+			logger.LogError.Printf("WithLogging: failed to redact URL: %v", err)
+		}
+
 		if cacheStatus != "" {
 			msg = fmt.Sprintf("Request: method: %s | status: %d | cache: %s | duration: %s | url: %s",
-				r.Method, lw.responseData.status, cacheStatus, duration, r.URL.Path)
+				r.Method, lw.responseData.status, cacheStatus, duration, redactedURL)
 		} else {
 			msg = fmt.Sprintf("Request: method: %s | status: %d | duration: %s | url: %s",
-				r.Method, lw.responseData.status, duration, r.URL.Path)
+				r.Method, lw.responseData.status, duration, redactedURL)
 		}
 
 		logger.LogInfo.Print(msg)
 	}
 
 	return http.HandlerFunc(loggingFn)
+}
+
+// redactURL is used to redact any sensitive parts of a raw URL.
+func redactURL(rawURL string) (string, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("redactURL: failed to parse raw URL: %w", err)
+	}
+
+	queryParams := parsedURL.Query()
+	queryParams.Set("password", "REDACTED")
+	queryParams.Set("token", "REDACTED")
+
+	pathParts := strings.Split(parsedURL.Path, "/")
+
+	// Redact the path var containing the base64-encoded user config.
+	if len(pathParts) > 1 {
+		pathParts[1] = "REDACTED"
+	}
+
+	parsedURL.Path = strings.Join(pathParts, "/")
+	parsedURL.RawQuery = queryParams.Encode()
+
+	return parsedURL.String(), nil
 }

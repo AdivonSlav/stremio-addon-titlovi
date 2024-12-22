@@ -49,10 +49,7 @@ func (c *Client) Login(username, password string) (*LoginData, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode > 299 {
-		logger.LogError.Printf("Login: %d, %s: %s", resp.StatusCode, url, resp.Status)
 		return nil, fmt.Errorf("Login: failed to login with message: %s", resp.Status)
-	} else {
-		logger.LogInfo.Printf("Login: %d, %s", resp.StatusCode, url)
 	}
 
 	body, err := io.ReadAll(resp.Body)

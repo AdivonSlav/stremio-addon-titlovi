@@ -97,8 +97,6 @@ func manifestHandler() http.HandlerFunc {
 			logger.LogError.Printf("manifestHandler: failed to marshal json: %v", err)
 		}
 
-		logger.LogInfo.Printf("Manifest was: %+v", manifest)
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(jsonResponse)
@@ -109,7 +107,6 @@ func manifestHandler() http.HandlerFunc {
 func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
-		path := r.URL.Path
 
 		userConfig := r.Context().Value(middleware.UserConfigContextKey).(*stremio.UserConfig)
 		if userConfig == nil {
@@ -120,14 +117,14 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 
 		_, ok := params["type"]
 		if !ok {
-			logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path, path was %s", path)
+			logger.LogError.Printf("subtitlesHandler: failed to get 'type' from path")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
 		id, ok := params["id"]
 		if !ok {
-			logger.LogError.Printf("subtitlesHandler: failed to get 'id' from path, path was %s", path)
+			logger.LogError.Printf("subtitlesHandler: failed to get 'id' from path")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -152,7 +149,7 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 
 			subtitleData, err := client.Search(imdbId, season, episode, config.TitloviLanguages, userConfig.Username, userConfig.Password)
 			if err != nil {
-				logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s: %s", err, path)
+				logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %v", err)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -194,18 +191,17 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
-		path := r.URL.Path
 
 		mediaType, ok := params["type"]
 		if !ok {
-			logger.LogError.Printf("serveSubtitleHandler: failed to get 'type' from path, path was %s", path)
+			logger.LogError.Printf("serveSubtitleHandler: failed to get 'type' from path")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
 		mediaId, ok := params["mediaid"]
 		if !ok {
-			logger.LogError.Printf("serveSubtitleHandler: failed to get 'mediaid' from path, path was %s", path)
+			logger.LogError.Printf("serveSubtitleHandler: failed to get 'mediaid' from path")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -227,7 +223,7 @@ func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.H
 			// We download the subtitle as a blob from Titlovi.com
 			data, err := client.Download(mediaType, mediaId)
 			if err != nil {
-				logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %s: %s", err, path)
+				logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -236,14 +232,14 @@ func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.H
 			// We need to open this ZIP file and extract the first found subtitle as a byte blob.
 			subData, err = utils.ExtractSubtitleFromZIP(data)
 			if err != nil {
-				logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %s: %s", err, path)
+				logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 
 			utf8, err := utils.ConvertSubtitleToUTF8(subData)
 			if err != nil {
-				logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %s", err, path)
+				logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
