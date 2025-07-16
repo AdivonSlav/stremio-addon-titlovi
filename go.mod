@@ -1,6 +1,6 @@
 module go-titlovi
 
-go 1.24.3
+go 1.24.5
 
 require (
 	github.com/avast/retry-go v3.0.0+incompatible
@@ -8,8 +8,8 @@ require (
 	github.com/gorilla/handlers v1.5.2
 	github.com/gorilla/mux v1.8.1
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d
-	golang.org/x/text v0.25.0
-	golang.org/x/time v0.11.0
+	golang.org/x/text v0.27.0
+	golang.org/x/time v0.12.0
 )
 
 require (
@@ -18,5 +18,5 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
 )
