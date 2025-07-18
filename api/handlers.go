@@ -58,8 +58,11 @@ func BuildServer(r *http.Handler) *http.Server {
 	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD"})
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf("0.0.0.0:%s", config.Port),
-		Handler: handlers.CORS(originsOk, headersOk, methodsOk)(*r),
+		Addr:         fmt.Sprintf("0.0.0.0:%s", config.Port),
+		Handler:      handlers.CORS(originsOk, headersOk, methodsOk)(*r),
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	return server
@@ -71,6 +74,8 @@ func homeHandler() http.HandlerFunc {
 		jsonResponse, err := json.Marshal(map[string]any{"path": "/"})
 		if err != nil {
 			logger.LogError.Printf("homeHandler: failed to marshal json: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -79,21 +84,19 @@ func homeHandler() http.HandlerFunc {
 	}
 }
 
-// manifestHandler handles requests for the Stremio manifest.CacheManager
+// manifestHandler handles requests for the Stremio manifest.
 func manifestHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		manifest := config.Manifest
 
 		userConfig := r.Context().Value(middleware.UserConfigContextKey).(*stremio.UserConfig)
-		if userConfig != nil {
-			manifest.BehaviourHints.ConfigurationRequired = false
-		} else {
-			manifest.BehaviourHints.ConfigurationRequired = true
-		}
+		manifest.BehaviourHints.ConfigurationRequired = userConfig == nil
 
 		jsonResponse, err := json.Marshal(manifest)
 		if err != nil {
 			logger.LogError.Printf("manifestHandler: failed to marshal json: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -106,6 +109,7 @@ func manifestHandler() http.HandlerFunc {
 func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
+		ctx := r.Context()
 
 		userConfig := r.Context().Value(middleware.UserConfigContextKey).(*stremio.UserConfig)
 		if userConfig == nil {
@@ -138,7 +142,7 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 
 			resp, ok = val.(*stremio.SubtitlesResponse)
 			if !ok {
-				logger.LogFatal.Printf("subtitlesHandler: value found in cache was of an unexpected type")
+				logger.LogError.Printf("subtitlesHandler: value found in cache was of an unexpected type")
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -146,9 +150,9 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 			w.Header().Set(config.CacheHeader, config.CacheMiss)
 			imdbId, season, episode := stremio.ParseVideoId(id)
 
-			subtitleData, err := client.Search(imdbId, season, episode, config.TitloviLanguages, userConfig.Username, userConfig.Password)
+			subtitleData, err := client.Search(ctx, imdbId, season, episode, config.TitloviLanguages, userConfig.Username, userConfig.Password)
 			if err != nil {
-				logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %v", err)
+				logger.LogError.Printf("subtitlesHandler: failed to search for subtitles: %s", err.Error())
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -178,6 +182,8 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 		jsonResponse, err := json.Marshal(resp)
 		if err != nil {
 			logger.LogError.Printf("subtitlesHandler: failed to marshal response: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -190,6 +196,7 @@ func subtitlesHandler(client *titlovi.Client, cache *ristretto.Cache) http.Handl
 func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
+		ctx := r.Context()
 
 		mediaType, ok := params["type"]
 		if !ok {
@@ -212,7 +219,7 @@ func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.H
 
 			subData, ok = val.([]byte)
 			if !ok {
-				logger.LogFatal.Printf("subtitlesHandler: value found in cache was of an unexpected type")
+				logger.LogError.Printf("subtitlesHandler: value found in cache was of an unexpected type")
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -220,7 +227,7 @@ func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.H
 			w.Header().Set(config.CacheHeader, config.CacheMiss)
 
 			// We download the subtitle as a blob from Titlovi.com
-			data, err := client.Download(mediaType, mediaId)
+			data, err := client.Download(ctx, mediaType, mediaId)
 			if err != nil {
 				logger.LogError.Printf("serveSubtitlesHandler: failed to download subtitle: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
@@ -238,7 +245,7 @@ func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.H
 
 			utf8, err := titlovi.ConvertSubtitleToUTF8(subData)
 			if err != nil {
-				logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %v", err)
+				logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s", err.Error())
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}

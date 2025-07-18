@@ -1,10 +1,11 @@
 package titlovi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go-titlovi/internal/config"
-	"go-titlovi/internal/logger"
 	"io"
 	"net/http"
 	"net/url"
@@ -21,9 +22,9 @@ type Client struct {
 	// A map of usernames and their corresponding tokens.
 	clientLoginData map[string]*LoginData
 	mtx             sync.RWMutex
-
-	retryAttempts uint
-	retryDelay    time.Duration
+	http            http.Client
+	retryAttempts   uint
+	retryDelay      time.Duration
 }
 
 func NewClient(retryAttempts uint, retryDelay time.Duration) *Client {
@@ -34,43 +35,48 @@ func NewClient(retryAttempts uint, retryDelay time.Duration) *Client {
 	}
 }
 
-// Login attempts a login to the Titlovi.com API and internally stores the retrieved token if succesful.
-func (c *Client) Login(username, password string) (*LoginData, error) {
+// Login attempts a login to the Titlovi.com API and internally stores the retrieved token if successful.
+func (c *Client) Login(ctx context.Context, username, password string) (*LoginData, error) {
 	params := url.Values{}
 	params.Add("username", username)
 	params.Add("password", password)
 	url := fmt.Sprintf("%s/gettoken?%s", config.TitloviApi, params.Encode())
 
-	resp, err := http.Post(url, "application/x-www-form-urlencoded", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
-		err = fmt.Errorf("Login: failed to login: %w", err)
-		return nil, err
+		return nil, fmt.Errorf("create login request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("post login: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode > 299 {
-		return nil, fmt.Errorf("Login: failed to login with message: %s", resp.Status)
+		return nil, fmt.Errorf("login: %s", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("Login: failed to read response body: %w", err)
+		return nil, fmt.Errorf("response read: %w", err)
 	}
 
 	loginData := &LoginData{}
 	err = json.Unmarshal(body, loginData)
 	if err != nil {
-		return nil, fmt.Errorf("Login: failed to unmarshal respone body: %w", err)
+		return nil, fmt.Errorf("response unmarshal: %w", err)
 	}
 
 	return loginData, nil
 }
 
 // Search performs a search on the Titlovi.com API and returns a slice of titlovi.SubtitleData if successful.
-func (c *Client) Search(imdbId string, season, episode string, languages []string, username, password string) ([]SubtitleData, error) {
-	d, err := c.getLoginData(username, password, false)
+func (c *Client) Search(ctx context.Context, imdbId, season, episode string, languages []string, username, password string) ([]SubtitleData, error) {
+	d, err := c.getLoginData(ctx, username, password, false)
 	if err != nil {
-		return nil, fmt.Errorf("Search: cannot search because the token could not be found: %s", err)
+		return nil, fmt.Errorf("get login data: %w", err)
 	}
 
 	params := url.Values{}
@@ -90,78 +96,88 @@ func (c *Client) Search(imdbId string, season, episode string, languages []strin
 	var body []byte
 
 	err = retry.Do(func() error {
-		resp, err := http.Get(url)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return fmt.Errorf("failed to search: %w", err)
+			return fmt.Errorf("create search request: %w", err)
 		}
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return fmt.Errorf("get search: %w", err)
+		}
+		defer resp.Body.Close()
 
 		if resp.StatusCode == 401 {
 			// Retry search with new token
-			d, loginErr := c.getLoginData(username, password, true)
+			d, loginErr := c.getLoginData(ctx, username, password, true)
 			if loginErr != nil {
-				logger.LogError.Printf("failed to search due to login failure: %s", loginErr.Error())
+				return fmt.Errorf("get login data retry: %w", err)
 			}
 
 			params.Set("token", d.Token)
 			params.Set("userid", strconv.Itoa(int(d.UserId)))
 			url = fmt.Sprintf("%s/search?%s", config.TitloviApi, params.Encode())
+			return errors.New("retry with new token")
 		}
 
 		if resp.StatusCode > 299 {
-			return fmt.Errorf("status %d, %s: %s", resp.StatusCode, url, resp.Status)
+			return fmt.Errorf("get: %s", resp.Status)
 		} else {
 			body, err = io.ReadAll(resp.Body)
 			if err != nil {
-				return fmt.Errorf("failed to read response body: %w", err)
+				return fmt.Errorf("response read: %w", err)
 			}
 		}
 
 		return nil
 	}, retry.Attempts(c.retryAttempts), retry.Delay(c.retryDelay))
 	if err != nil {
-		return nil, fmt.Errorf("Search: %w", err)
+		return nil, err
 	}
 
 	subtitleResponse := SubtitleDataResponse{}
 	err = json.Unmarshal(body, &subtitleResponse)
 	if err != nil {
-		return nil, fmt.Errorf("Search: failed to unmarshal response body: %w", err)
+		return nil, fmt.Errorf("response unmarshal: %w", err)
 	}
 
 	return subtitleResponse.Subtitles, nil
 }
 
 // Download downloads a subtitle from Titlovi.com based on the provided type and ID and returns it as a blob.
-func (c *Client) Download(mediaType string, mediaId string) ([]byte, error) {
+func (c *Client) Download(ctx context.Context, mediaType string, mediaId string) ([]byte, error) {
 	url := fmt.Sprintf("%s/?type=%s&mediaid=%s", config.TitloviDownload, mediaType, mediaId)
 	var body []byte
 
 	err := retry.Do(func() error {
-		resp, err := http.Get(url)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return fmt.Errorf("failed to download subtitle at %s: %s", url, err)
+			return fmt.Errorf("create download request: %w", err)
+		}
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return fmt.Errorf("get subtitle: %w", err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode > 299 {
-			return fmt.Errorf("status %d, %s: %s", resp.StatusCode, url, resp.Status)
+			return fmt.Errorf("get: %w", err)
 		} else {
 			body, err = io.ReadAll(resp.Body)
 			if err != nil {
-				return fmt.Errorf("failed to read response body: %w", err)
+				return fmt.Errorf("response read: %w", err)
 			}
 		}
 
 		return nil
 	}, retry.Attempts(c.retryAttempts), retry.Delay(c.retryDelay))
 	if err != nil {
-		return nil, fmt.Errorf("Download: %w", err)
+		return nil, err
 	}
 
 	return body, nil
 }
 
-func (c *Client) getLoginData(username, password string, forceLogin bool) (*LoginData, error) {
+func (c *Client) getLoginData(ctx context.Context, username, password string, forceLogin bool) (*LoginData, error) {
 	var err error
 
 	c.mtx.RLock()
@@ -170,9 +186,9 @@ func (c *Client) getLoginData(username, password string, forceLogin bool) (*Logi
 
 	// If we don't have it, get it
 	if !ok || forceLogin {
-		d, err = c.Login(username, password)
+		d, err = c.Login(ctx, username, password)
 		if err != nil {
-			return nil, fmt.Errorf("getToken: could not login user '%s': %s", username, err)
+			return nil, fmt.Errorf("login: %w", err)
 		}
 
 		c.mtx.Lock()

@@ -23,6 +23,9 @@ type loggingResponseWriter struct {
 }
 
 func (r *loggingResponseWriter) Write(b []byte) (int, error) {
+	if r.responseData.status == 0 {
+		r.responseData.status = http.StatusOK
+	}
 	size, err := r.ResponseWriter.Write(b)
 	r.responseData.size += size
 	return size, err
@@ -47,22 +50,22 @@ func WithLogging(next http.Handler) http.Handler {
 		duration := time.Since(start)
 
 		cacheStatus := w.Header().Get(config.CacheHeader)
-		var msg string
 
 		redactedURL, err := redactURL(r.URL.Path)
 		if err != nil {
-			logger.LogError.Printf("WithLogging: failed to redact URL: %v", err)
+			logger.LogError.Printf("WithLogging: failed to redact URL: %s", err.Error())
 		}
 
+		var msg string
 		if cacheStatus != "" {
-			msg = fmt.Sprintf("Request: method: %s | status: %d | cache: %s | duration: %s | url: %s",
+			msg = fmt.Sprintf("method=%s status=%d cache=%s duration=%s url=%s",
 				r.Method, lw.responseData.status, cacheStatus, duration, redactedURL)
 		} else {
-			msg = fmt.Sprintf("Request: method: %s | status: %d | duration: %s | url: %s",
+			msg = fmt.Sprintf("method=%s status=%d duration=%s url=%s",
 				r.Method, lw.responseData.status, duration, redactedURL)
 		}
 
-		logger.LogInfo.Print(msg)
+		logger.LogInfo.Printf("Request: %s", msg)
 	}
 
 	return http.HandlerFunc(loggingFn)
@@ -72,15 +75,17 @@ func WithLogging(next http.Handler) http.Handler {
 func redactURL(rawURL string) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("redactURL: failed to parse raw URL: %w", err)
+		return "", fmt.Errorf("parse: %w", err)
 	}
 
 	queryParams := parsedURL.Query()
-	queryParams.Set("password", "REDACTED")
-	queryParams.Set("token", "REDACTED")
+	for _, key := range []string{"password", "token"} {
+		if queryParams.Has(key) {
+			queryParams.Set(key, "REDACTED")
+		}
+	}
 
 	pathParts := strings.Split(parsedURL.Path, "/")
-
 	// Redact the path var containing the base64-encoded user config.
 	if len(pathParts) > 1 {
 		pathParts[1] = "REDACTED"
