@@ -9,7 +9,6 @@ import (
 	"go-titlovi/internal/logger"
 	"go-titlovi/internal/stremio"
 	"go-titlovi/internal/titlovi"
-	"go-titlovi/internal/utils"
 	"go-titlovi/web"
 	"net/http"
 	"strconv"
@@ -230,14 +229,14 @@ func serveSubtitleHandler(client *titlovi.Client, cache *ristretto.Cache) http.H
 
 			// Titlovi.com responds with subtitles that are compressed in ZIP files.
 			// We need to open this ZIP file and extract the first found subtitle as a byte blob.
-			subData, err = utils.ExtractSubtitleFromZIP(data)
+			subData, err = titlovi.ExtractSubtitleFromZIP(data)
 			if err != nil {
 				logger.LogError.Printf("serveSubtitleHandler: failed to extract subtitle from ZIP: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 
-			utf8, err := utils.ConvertSubtitleToUTF8(subData)
+			utf8, err := titlovi.ConvertSubtitleToUTF8(subData)
 			if err != nil {
 				logger.LogError.Printf("serveSubtitleHandler: failed to convert subtitle: %s: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
@@ -283,7 +282,7 @@ func configureHandler() http.HandlerFunc {
 			return
 		}
 
-		enc, err := utils.EncodeUserConfig(creds)
+		enc, err := middleware.EncodeUserConfig(creds)
 		if err != nil {
 			logger.LogError.Printf("configureHandler: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)

@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"go-titlovi/internal/utils"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -24,7 +23,7 @@ func WithAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		userConfig, err := utils.DecodeUserConfig(userConfigEnc)
+		userConfig, err := DecodeUserConfig(userConfigEnc)
 		if err != nil {
 			http.Error(w, "Cannot decode user config", http.StatusUnauthorized)
 			return
