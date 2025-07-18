@@ -1,7 +1,7 @@
 # Build stage
 FROM golang:1.24.5-alpine AS build
 
-WORKDIR /app
+WORKDIR /src
 
 RUN apk add --no-cache make git
 
@@ -22,10 +22,10 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /app
 
 # Copy the binary from the build stage
-COPY --from=build /app/build/addon .
+COPY --from=build /src/build/addon .
 
 # Copy the HTML web templates.
-COPY --from=build /app/build/web/ .
+COPY --from=build /src/build/web/templates ./web/templates/
 
 # Expose the default port.
 EXPOSE 5555
