@@ -13,6 +13,11 @@ RUN make build
 # Run stage
 FROM alpine:latest
 
+LABEL org.opencontainers.image.title="stremio-addon-titlovi"
+LABEL org.opencontainers.image.description="Stremio addon for Titlovi.com"
+LABEL org.opencontainers.image.source="https://github.com/AdivonSlav/stremio-addon-titlovi"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
 # Set the working directory
 WORKDIR /app
 
@@ -20,7 +25,7 @@ WORKDIR /app
 COPY --from=build /app/build/addon .
 
 # Copy the HTML web templates.
-COPY --from=build /app/web ./web 
+COPY --from=build /app/build/web/ .
 
 # Expose the default port.
 EXPOSE 5555
